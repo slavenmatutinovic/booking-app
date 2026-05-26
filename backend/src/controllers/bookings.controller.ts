@@ -25,6 +25,7 @@ import { Prisma } from '@prisma/client';
 import { sendBookingConfirmation, sendBookingCancellation } from '../utils/emailService';
 import { createBookingSchema, updateBookingSchema } from '../validators/booking.validator';
 import { appCache } from '../utils/cache';
+import { MAX_BOOKING_DAYS } from '@shared/index';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
 type ApartmentRow = { id: string };
@@ -81,13 +82,16 @@ export const getBookings = async (
       queryOptions.skip = 1; // Preskačemo sam cursor element da ga ne učitamo ponovo
     }
 
+    const shouldCache = !cursor;
     // Kreiramo dinamički ključ na osnovu parametara pretrage (npr. "bookings:2026-07")
     const cacheKey = `bookings:${month || 'all'}:${apartmentId || 'all'}`;
 
-    const cachedBookings = appCache.get(cacheKey);
-    if (cachedBookings) {
-      res.json(cachedBookings);
-      return;
+    if (shouldCache) {
+      const cachedBookings = appCache.get(cacheKey);
+      if (cachedBookings) {
+        res.json(cachedBookings);
+        return;
+      }
     }
 
     const bookings = await prisma.booking.findMany(queryOptions);
@@ -100,9 +104,36 @@ export const getBookings = async (
     }
 
     logger.info({ count: bookings.length, month, apartmentId }, '✅ getBookings — učitano');
+
+    /**
+     * Filtriranje osetljivih podataka na osnovu role pozivajućeg korisnika.
+     *
+     * Javni korisnici (gosti bez naloga) ne smeju videti:
+     *   - Ime gosta (guest) — GDPR: lično ime
+     *   - Email adresu (email) — GDPR: lični kontakt
+     *   - Broj telefona (phone) — GDPR: lični kontakt
+     *
+     * Prijavljeni korisnici (VIEWER i ADMIN) vide sve podatke.
+     *
+     * Napomena: Ovo je dodatni sloj zaštite na backendu. Frontend
+     * implementira isti filter radi UX-a (sakrij polja u UI-u),
+     * ali backend filter je jedini koji je bezbednosno relevantan.
+     */
+    const isAuthenticated = !!req.user;
+
+    const filteredBookings = isAuthenticated
+      ? bookings // Prijavljeni vide sve
+      : bookings.map(({ guest: _g, email: _e, phone: _p, ...publicFields }) => publicFields);
+    // ↑ Javni korisnici dobijaju samo: id, apartmentId, startDate, endDate, status, apartment
+
+    const responsePayload = { bookings: filteredBookings, nextCursor };
+
     // Keširamo ovaj specifičan mesec/apartman
-    appCache.set(cacheKey, { bookings, nextCursor }, 1800); // 30 minuta
-    res.json({ bookings, nextCursor });
+    if (shouldCache) {
+      appCache.set(cacheKey, responsePayload, 1800);
+    }
+
+    res.json(responsePayload);
   } catch (error) {
     logger.error({ err: error }, '❌ getBookings — greška u bazi');
     next(error); // ← Prosleđuje grešku globalnom handleru
@@ -285,6 +316,13 @@ export const updateBooking = async (
           if (conflictingBooking) {
             throw new Error('BOOKING_CONFLICT');
           }
+          // Provjera MAX_BOOKING_DAYS na kombinovanim datumima
+          const diffDays = Math.ceil(
+            (finalEndDate.getTime() - finalStartDate.getTime()) / (1000 * 60 * 60 * 24),
+          );
+          if (diffDays > MAX_BOOKING_DAYS) {
+            throw new Error('BOOKING_TOO_LONG');
+          }
         }
 
         // 3. Mapiranje polja za unos u Prisma ažuriranje
@@ -341,6 +379,12 @@ export const updateBooking = async (
         res
           .status(409)
           .json({ error: 'Novi termin je zauzet, preklapanje sa drugom rezervacijom!' });
+        return;
+      }
+      if (error.message === 'BOOKING_TOO_LONG') {
+        res.status(400).json({
+          error: `Rezervacija ne može trajati duže od ${MAX_BOOKING_DAYS} dana.`,
+        });
         return;
       }
     }

@@ -19,7 +19,6 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
       return;
     }
 
-    // ✅ ISPRAVKA NOV-03: Koristiti parseResult.data, NE req.body!
     const { email, password } = parseResult.data;
 
     const user = await prisma.user.findUnique({ where: { email } });
@@ -56,7 +55,7 @@ export const login = async (req: Request, res: Response, next: NextFunction): Pr
     logger.info({ userId: user.id, email: user.email, role: user.role }, '✅ Uspešna prijava');
     res.json({
       message: 'Uspešna prijava',
-      user: { id: user.id, email: user.email, role: user.role, tokenVersion: user.tokenVersion },
+      user: { id: user.id, email: user.email, role: user.role },
     });
   } catch (error) {
     logger.error({ err: error }, '❌ login — neočekivana greška');
@@ -121,7 +120,13 @@ export const getMe = async (req: Request, res: Response, next: NextFunction): Pr
     }
 
     logger.debug({ userId: user.id, role: user.role }, '✅ /me — sesija validna');
-    res.json({ user });
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        role: user.role,
+      },
+    });
   } catch (error) {
     logger.error({ err: error }, '❌ getMe — neočekivana greška');
     next(error); // ← Prosleđuje grešku globalnom handleru

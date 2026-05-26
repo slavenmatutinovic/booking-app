@@ -48,6 +48,8 @@ import {
 } from '../controllers/bookings.controller';
 import { createBookingRequest } from '../controllers/bookingRequests.controller';
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/authMiddleware';
+import { requestsLimiter } from '../server';
+import { Server } from 'tls';
 
 const router = Router();
 
@@ -74,6 +76,8 @@ router.get('/', optionalAuth, getBookings);
 
 // Ova ruta je 100% javna — omogućava neulogovanim gostima da pošalju zahtev
 router.post('/requests', createBookingRequest);
+
+router.post('/requests', requestsLimiter, createBookingRequest);
 
 // =============================================================================
 // 🔑 ADMIN-ONLY RUTE (obavezna prijava + ADMIN rola)

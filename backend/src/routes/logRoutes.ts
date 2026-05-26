@@ -28,6 +28,13 @@ router.post('/logs', (req: Request, res: Response): void => {
     details: typeof errorDetails === 'object' && errorDetails !== null ? errorDetails : {},
   };
 
+  // Već postoji Zod validacija — ali dodati i proveru veličine:
+  const body = req.body;
+  if (JSON.stringify(body).length > 2048) {
+    res.status(413).json({ error: 'Log poruka je predugačka.' });
+    return;
+  }
+
   // Dinamički biramo Pino metodu u zavisnosti od ozbiljnosti greške sa frontenda
   if (level === 'error') {
     logger.error(logPayload, `❌ Frontend Greška: ${message.slice(0, 500)}`);

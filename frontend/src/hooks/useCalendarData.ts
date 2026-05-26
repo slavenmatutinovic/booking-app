@@ -94,16 +94,36 @@ export function useCalendarData({
         const [aptData, rawBookings] = await Promise.all([getApartments(), getBookings()]);
         if (cancelled) return;
 
-        const formattedBookings: FrontendBooking[] = (rawBookings as ApiBooking[]).map((b, i) => ({
-          id: b.id,
-          apartmentId: b.apartmentId,
-          start: b.startDate.split('T')[0],
-          end: b.endDate.split('T')[0],
-          guest: b.guest || 'Gost',
-          email: b.email,
-          phone: b.phone,
-          color: PALETTE[i % PALETTE.length],
-        }));
+        // 🚀 KORAK 1: Sortiramo rezervacije hronološki prema datumu početka
+        // Ovo garantuje da rezerevacije unutar svakog apartmana idu redom po vremenskoj liniji
+        const sortedRawBookings = [...(rawBookings as ApiBooking[])].sort(
+          (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
+        );
+
+        // 🚀 KORAK 2: Pravimo brojač boja za SVAKI apartman pojedinačno
+        // Ključ: apartmentId -> Vrednost: trenutni indeks boje iz PALETTE niza
+        const apartmentColorCounters = new Map<string, number>();
+
+        const formattedBookings: FrontendBooking[] = sortedRawBookings.map((b) => {
+          // Čitamo trenutni indeks boje za ovaj specifičan apartman (ako nema unosa, krećemo od 0)
+          const currentColorIdx = apartmentColorCounters.get(b.apartmentId) ?? 0;
+
+          // Pomeramo brojač za 1 unapred za sledeću rezervaciju u ovom istom apartmanu
+          apartmentColorCounters.set(b.apartmentId, currentColorIdx + 1);
+
+          return {
+            id: b.id,
+            apartmentId: b.apartmentId,
+            start: b.startDate.split('T')[0],
+            end: b.endDate.split('T')[0],
+            guest: b.guest || 'Gost',
+            email: b.email,
+            phone: b.phone,
+            // 🚀 REŠENJE: Svaka naredna traka u istom apartmanu uzima sledeću boju iz palete.
+            // Pošto idu u krug ciklično, uzastopne rezervacije NIKADA neće imati istu boju!
+            color: PALETTE[currentColorIdx % PALETTE.length],
+          };
+        });
 
         setApartments(aptData ?? []);
         setBookings(formattedBookings);

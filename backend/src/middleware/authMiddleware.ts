@@ -165,7 +165,11 @@ export const requireAdmin = (req: Request, res: Response, next: NextFunction): v
  * Ne baca grešku na nevažeći token — samo ga ignoriše.
  * Razlog: Da ne blokiramo javne korisnike samo zbog starog/oštećenog kolačića.
  */
-export const optionalAuth = (req: Request, _res: Response, next: NextFunction): void => {
+export const optionalAuth = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction,
+): Promise<void> => {
   const token = req.cookies?.token;
 
   if (!token) {
@@ -176,7 +180,16 @@ export const optionalAuth = (req: Request, _res: Response, next: NextFunction): 
 
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
-    req.user = payload;
+    // Provera tokenVersion — isti mehanizam kao u requireAuth
+    const dbUser = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: { tokenVersion: true },
+    });
+
+    if (dbUser && dbUser.tokenVersion === payload.tokenVersion) {
+      req.user = payload;
+    }
+    // Ako tokenVersion ne odgovara, req.user ostaje undefined — ponašamo se kao gost
   } catch {
     // Nevažeći token — ignoriši, nastavi kao gost
     // Ne postavljamo req.user, ali ne vraćamo ni grešku

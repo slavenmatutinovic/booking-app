@@ -120,6 +120,61 @@ export const updateBookingSchema = z
     { error: `Rezervacija ne može trajati duže od ${MAX_BOOKING_DAYS} dana`, path: ['endDate'] },
   );
 
+/**
+ * Šema za zahtev gosta (javni endpoint POST /api/bookings/requests).
+ *
+ * Razlike od createBookingSchema:
+ *   - Nema provere da startDate nije u prošlosti (admin može pregledati stare zahteve)
+ *   - Striktna sanitizacija guest i email polja zbog XSS rizika
+ *   - Blago opušteniji limit na dužinu (gosti ne znaju za limit od 2 karaktera)
+ */
+export const createGuestRequestSchema = z
+  .object({
+    apartmentId: z
+      .string({ error: 'ID apartmana je obavezan' })
+      .min(1, { error: 'ID apartmana je obavezan' }),
+
+    guest: z
+      .string({ error: 'Ime je obavezno' })
+      .min(2, { error: 'Ime mora imati najmanje 2 karaktera' })
+      .max(100, { error: 'Ime je predugačko (max 100 karaktera)' })
+      .transform((s) => s.trim()), // ← Sanitizacija: ukloni whitespace
+
+    email: z
+      .string({ error: 'Email adresa je obavezna' })
+      .check(z.email({ error: 'Neispravan format email adrese' }))
+      .max(255, { error: 'Email je predugačak' })
+      .transform((s) => s.trim().toLowerCase()), // ← Normalizacija
+
+    phone: z
+      .string()
+      .max(30, { error: 'Broj telefona je predugačak' })
+      .optional()
+      .nullable()
+      .transform((s) => s?.trim() || ''),
+
+    startDate: z.iso
+      .datetime({ error: 'startDate mora biti ISO 8601 string' })
+      .transform((s) => new Date(s)),
+
+    endDate: z.iso
+      .datetime({ error: 'endDate mora biti ISO 8601 string' })
+      .transform((s) => new Date(s)),
+  })
+  .refine((data) => data.endDate > data.startDate, {
+    error: 'Datum odlaska mora biti posle datuma dolaska',
+    path: ['endDate'],
+  })
+  .refine(
+    (data) => {
+      const diffMs = data.endDate.getTime() - data.startDate.getTime();
+      const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      return diffDays <= MAX_BOOKING_DAYS;
+    },
+    { error: `Zahtev ne može biti duži od ${MAX_BOOKING_DAYS} dana`, path: ['endDate'] },
+  );
+
 // Eksportovani tipovi za upotrebu u kontrolerima (TypeScript inference)
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 export type UpdateBookingInput = z.infer<typeof updateBookingSchema>;
+export type CreateGuestRequestInput = z.infer<typeof createGuestRequestSchema>;

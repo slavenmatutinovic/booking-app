@@ -46,7 +46,7 @@ app.use(
         scriptSrc: ["'self'"],
         styleSrc: ["'self'"], // prilagoditi prema potrebi
         imgSrc: ["'self'", 'data:'],
-        connectSrc: ["'self'", env.FRONTEND_URL],
+        connectSrc: ["'self'"],
       },
     },
     hsts: { maxAge: 31536000, includeSubDomains: true },
@@ -102,10 +102,18 @@ const logLimiter = rateLimit({
   message: { error: 'Previše poslatih logova. Zahtev blokiran zbog bezbednosti.' },
 });
 
+export const requestsLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 sat
+  max: env.NODE_ENV === 'development' ? 500 : 5, // Samo 5 zahteva po satu po IP-u
+  message: { error: 'Previše zahteva za rezervaciju. Pokušajte ponovo za sat vremena.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 // 🗺️ Osnovna test ruta za proveru ispravnosti servera
 app.get('/api/test', (_req, res) => {
   logger.debug('🏓 GET /api/test');
-  res.json({ message: 'Backend server radi uspešno!', env: env.NODE_ENV });
+  res.json({ message: 'Backend server radi uspešno!', timestamp: new Date().toISOString() });
 });
 
 // ── Auth rute ─────────────────────────────────────────────────────────────────

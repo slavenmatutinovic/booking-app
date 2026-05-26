@@ -50,9 +50,6 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { createGuestRequestSchema } from '../validators/booking.validator';
-// ☝️ TODO: Kreirati createGuestRequestSchema u booking.validator.ts
-// Identična je createBookingSchema ali bez startDate provjere u prošlosti
-// (admin možda želi da vidi i stare zahteve) i bez requireAdmin ograničenja.
 
 // =============================================================================
 // 📬 POST /api/bookings/requests
@@ -78,37 +75,18 @@ export const createBookingRequest = async (
     '📬 POST /api/bookings/requests',
   );
 
-  // ─── Validacija ulaznih podataka ──────────────────────────────────────────
-  //
-  // ⚠️  SEC-01 NAPOMENA: Trenutno nema Zod validacije — direktno čitamo req.body.
-  // Ovo je bezbednosni propust — guest, email i drugi podaci se upisuju u bazu
-  // bez sanitizacije. Dodati Zod šemu što pre:
-  //
-  //   const parseResult = createGuestRequestSchema.safeParse(req.body);
-  //   if (!parseResult.success) {
-  //     res.status(400).json({ error: parseResult.error.issues[0]?.message });
-  //     return;
-  //   }
-  //   const { apartmentId, guest, email, phone, startDate, endDate } = parseResult.data;
-  //
-  // Dok Zod nije dodat, radimo ručnu provjeru obaveznih polja:
-  const { apartmentId, guest, email, phone, startDate, endDate } = req.body;
-
-  if (!apartmentId || !guest || !startDate || !endDate || !email) {
-    res.status(400).json({ error: 'Nedostaju obavezna polja (apartman, ime, email i datumi).' });
+  //Zod validacija:
+  const parseResult = createGuestRequestSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    const firstError = parseResult.error.issues[0]?.message ?? 'Neispravan unos';
+    logger.warn(
+      { errors: parseResult.error.issues },
+      '⚠️ createBookingRequest — validacija neuspešna',
+    );
+    res.status(400).json({ error: firstError });
     return;
   }
-
-  // Osnovna provjera tipa — Zod bi ovo radio automatski i detaljnije
-  if (typeof guest !== 'string' || guest.trim().length < 2) {
-    res.status(400).json({ error: 'Ime gosta mora imati najmanje 2 karaktera.' });
-    return;
-  }
-
-  if (typeof email !== 'string' || !email.includes('@')) {
-    res.status(400).json({ error: 'Neispravan format email adrese.' });
-    return;
-  }
+  const { apartmentId, guest, email, phone, startDate, endDate } = parseResult.data;
 
   try {
     // ─── Provjera konflikta sa potvrđenim rezervacijama ───────────────────────
@@ -178,7 +156,6 @@ export const createBookingRequest = async (
     //   sendRequestConfirmation(newRequest).catch(err =>
     //     logger.error({ err }, '⚠️ Potvrda zahteva gostu nije poslata')
     //   );
-
   } catch (error) {
     logger.error({ err: error }, '❌ Greška pri kreiranju zahteva za rezervaciju');
     next(error); // ← Prosleđuje globalnom error handleru
