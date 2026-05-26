@@ -1,0 +1,508 @@
+/*
+  BookingCalendar.css — ISPRAVLJENA VERZIJA
+
+  ISPRAVKE:
+  - [QUALITY-2] --sidebar-w: 240px → 160px (usklađeno sa SIDEBAR_W=160 u JSX)
+  - [BUG-5] Dodat .cell.past stil — vizuelno razlikovanje prošlih slobodnih dana
+            od zauzetih dana (different cursor + boja)
+  - Ostali stilovi nepromenjeni
+*/
+
+:root {
+  /* [QUALITY-2] ISPRAVKA: Bilo 240px, JS konstanta je 156/160px — usklađeno */
+  --sidebar-w: 160px;
+  --row-h: 52px;
+  --hdr-h: 52px;
+
+  --border: #e5e7eb;
+  --border-soft: #f3f4f6;
+
+  --bg: #f8f9fa;
+  --white: #fff;
+
+  --text: #111827;
+  --text-soft: #6b7280;
+  --text-fade: #9ca3af;
+
+  --blue: #2563eb;
+  --blue-soft: #eff6ff;
+}
+
+/* =============================================================================
+   ROOT
+============================================================================= */
+
+.calendar {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+  font-family:
+    system-ui,
+    -apple-system,
+    sans-serif;
+  user-select: none;
+  overflow: hidden;
+}
+
+/* =============================================================================
+   TOOLBAR
+============================================================================= */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.toolbar-right {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.toolbar-hint {
+  font-size: 11px;
+  color: var(--text-fade);
+  align-self: center;
+}
+
+.month-label {
+  font-weight: 600;
+  font-size: 15px;
+  min-width: 148px;
+  text-align: center;
+}
+
+/* =============================================================================
+   BUTTONS
+============================================================================= */
+
+.btn {
+  padding: 5px 12px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--white);
+  font-size: 14px;
+  cursor: pointer;
+  color: #374151;
+  font-weight: 500;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    opacity 0.15s;
+}
+
+.btn:hover {
+  background: #f9fafb;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: var(--blue);
+  color: white;
+  border-color: var(--blue);
+}
+
+.btn-disabled {
+  background: #93c5fd;
+  cursor: default;
+  border-color: #93c5fd;
+  color: white;
+}
+
+/* =============================================================================
+   MAIN LAYOUT
+============================================================================= */
+
+.calendar-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* =============================================================================
+   SIDEBAR
+============================================================================= */
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex-shrink: 0;
+  background: var(--white);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  z-index: 30;
+}
+
+.sidebar-header {
+  height: var(--hdr-h);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-row {
+  height: var(--row-h);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 13px;
+  color: #374151;
+  font-weight: 500;
+}
+
+/* =============================================================================
+   TIMELINE
+============================================================================= */
+
+.timeline {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  position: relative;
+}
+
+.timeline-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  height: var(--hdr-h);
+}
+
+.day-header {
+  width: var(--day-w);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.day-header.today {
+  background: var(--blue-soft);
+}
+
+.day-number {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.day-number.today {
+  color: #1d4ed8;
+  font-weight: 700;
+}
+.day-number.outside {
+  color: #d1d5db;
+}
+
+.day-name {
+  font-size: 10px;
+  color: var(--text-fade);
+}
+.day-name.today {
+  color: #3b82f6;
+}
+.day-name.outside {
+  color: #e5e7eb;
+}
+
+/* =============================================================================
+   ROWS
+============================================================================= */
+
+.rows {
+  position: relative;
+}
+
+.row {
+  position: relative;
+  height: var(--row-h);
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.row-cells {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.cell {
+  width: var(--day-w);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-soft);
+}
+
+.cell.free {
+  cursor: cell;
+}
+.cell.occupied {
+  cursor: not-allowed;
+}
+.cell.today {
+  background: rgba(239, 246, 255, 0.5);
+}
+
+/* [BUG-5] NOVO: Vizuelno razlikovanje prošlih slobodnih dana
+   Prošli dani su slobodni ali ne-interaktivni — drugačiji cursor i boja
+   pomaže korisniku da razume zašto ne može da klikne */
+.cell.past {
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 4px,
+    rgba(0, 0, 0, 0.025) 4px,
+    rgba(0, 0, 0, 0.025) 8px
+  );
+  cursor: not-allowed;
+}
+
+/* =============================================================================
+   TODAY LINE
+============================================================================= */
+
+.today-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #3b82f6;
+  opacity: 0.5;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* =============================================================================
+   SELECTION
+============================================================================= */
+
+.selection {
+  position: absolute;
+  top: 4px;
+  height: calc(var(--row-h) - 8px);
+  background: rgba(59, 130, 246, 0.1);
+  border: 2px dashed rgba(59, 130, 246, 0.4);
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* =============================================================================
+   BOOKINGS
+============================================================================= */
+
+.booking {
+  position: absolute;
+  top: 5px;
+  height: calc(var(--row-h) - 10px);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  z-index: 10;
+  transition: opacity 0.15s;
+  will-change: transform;
+  cursor: grab;
+}
+
+.booking.dragging {
+  cursor: grabbing;
+  z-index: 50;
+  transition: none;
+}
+
+.booking.invalid {
+  outline: 2px solid #ef4444;
+}
+
+.booking-title {
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.booking-delete {
+  margin-left: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  border: none;
+  color: white;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* =============================================================================
+   TOOLTIP
+============================================================================= */
+
+.tooltip {
+  position: absolute;
+  bottom: calc(var(--row-h) - 2px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  color: white;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  white-space: nowrap;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.tooltip-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.tooltip-dates {
+  color: #d1d5db;
+}
+.tooltip-days {
+  color: #9ca3af;
+  font-size: 10px;
+  margin-top: 2px;
+}
+
+/* =============================================================================
+   MODAL
+============================================================================= */
+
+.modal {
+  position: absolute;
+  z-index: 200;
+}
+
+.modal-card {
+  background: white;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  padding: 16px;
+  width: 296px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.modal-subtitle {
+  font-size: 12px;
+  color: var(--text-soft);
+  margin-top: 2px;
+}
+
+.modal-close {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-fade);
+}
+
+.guest-input {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  outline: none;
+  box-sizing: border-box;
+  display: block;
+}
+
+.guest-input:focus {
+  border-color: #3b82f6;
+}
+
+/* =============================================================================
+   STATS
+============================================================================= */
+
+.stat-pill {
+  text-align: center;
+}
+.stat-label {
+  font-size: 10px;
+  color: var(--text-fade);
+  margin-bottom: 1px;
+}
+.stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* Klasa za privremenu rezervaciju */
+.booking-optimistic {
+  opacity: 0.6; /* Poluprovidno */
+  cursor: not-allowed; /* Pokazuje da se ne može kliknuti dok traje učitavanje */
+  animation: pulse-loading 1.5s infinite ease-in-out; /* Pulsirajući efekat */
+}
+
+/* Animacija za pulsiranje */
+@keyframes pulse-loading {
+  0% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+/* Primorava ceo ekran da zadrži grabbing kursor dok god traje prevlačenje */
+body:has(.dragging),
+body:has(.invalid) {
+  cursor: grabbing !important;
+}
+
+/* Stil za sam booking bar kada se pređe mišem preko njega */
+.booking {
+  cursor: grab;
+}
+
+.booking.dragging {
+  cursor: grabbing;
+}

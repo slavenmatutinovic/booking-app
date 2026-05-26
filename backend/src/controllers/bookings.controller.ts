@@ -1,0 +1,446 @@
+/**
+ * bookings.controller.ts — CRUD za rezervacije sa email notifikacijama.
+ *
+ * Sve mutacije (POST, PATCH, DELETE) koriste Prisma interaktivne transakcije
+ * sa PostgreSQL FOR UPDATE zaključavanjem reda. Ovo je namerno dizajnirano
+ * da spreči race condition kada dva korisnika istovremeno pokušaju da rezervišu
+ * isti termin — baza garantuje da samo jedan upis može proći.
+ *
+ * Tok jedne transakcije:
+ *   1. Zaključaj red (FOR UPDATE) — niko drugi ne može čitati/pisati dok ne završimo
+ *   2. Provjeri konflikt unutar iste transakcije
+ *   3. Izvrši mutaciju
+ *   4. Commit (automatski ako nema greške) ili Rollback (ako throw Error)
+ *
+ * Email notifikacije:
+ *   Slanje emaila je "fire and forget" — poziva se bez await posle odgovora klijentu.
+ *   Greška u slanju emaila se loguje ali NE blokira HTTP odgovor.
+ *   Ovo je namerno: klijent ne treba čekati SMTP round-trip (može biti 1-3 sekunde).
+ */
+
+import { Request, Response, NextFunction } from 'express';
+import { prisma } from '../config/prisma';
+import { logger } from '../utils/logger';
+import { Prisma } from '@prisma/client';
+import { sendBookingConfirmation, sendBookingCancellation } from '../utils/emailService';
+import { createBookingSchema, updateBookingSchema } from '../validators/booking.validator';
+import { appCache } from '../utils/cache';
+
+// ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
+type ApartmentRow = { id: string };
+type BookingRow = {
+  id: string;
+  apartmentId: string;
+  startDate: Date | string;
+  endDate: Date | string;
+  status: string;
+};
+
+// ─── GET /api/bookings ─────────────────────────────────────────────────────────
+export const getBookings = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const { month, apartmentId, limit = '200', cursor } = req.query;
+  logger.debug({ query: req.query, userId: req.user?.userId }, '📋 GET /api/bookings');
+
+  const where: Prisma.BookingWhereInput = { status: 'CONFIRMED' };
+
+  if (apartmentId) {
+    where.apartmentId = String(apartmentId);
+  }
+
+  if (month) {
+    const [year, mon] = String(month).split('-').map(Number);
+    if (!year || !mon || mon < 1 || mon > 12) {
+      res.status(400).json({ error: 'Neispravan format meseca. Koristite YYYY-MM.' });
+      return;
+    }
+    const startOfMonth = new Date(year, mon - 1, 1);
+    const endOfMonth = new Date(year, mon, 0, 23, 59, 59);
+    where.startDate = { lte: endOfMonth };
+    where.endDate = { gte: startOfMonth };
+  }
+
+  try {
+    const parsedLimit = Math.min(Number(limit), 500);
+
+    // Prisma query opcije
+    const queryOptions: Prisma.BookingFindManyArgs = {
+      where,
+      include: { apartment: { select: { id: true, name: true } } },
+      // Uzimamo 1 stavku više da proverimo da li ima još stranica za sledeći cursor
+      take: parsedLimit + 1,
+      orderBy: { id: 'asc' }, // Za pouzdan cursor, orderBy mora biti na unikatnom polju poput 'id'
+    };
+
+    // Ako je prosleđen cursor, dodajemo ga u Prisma opcije
+    if (cursor) {
+      queryOptions.cursor = { id: String(cursor) };
+      queryOptions.skip = 1; // Preskačemo sam cursor element da ga ne učitamo ponovo
+    }
+
+    // Kreiramo dinamički ključ na osnovu parametara pretrage (npr. "bookings:2026-07")
+    const cacheKey = `bookings:${month || 'all'}:${apartmentId || 'all'}`;
+
+    const cachedBookings = appCache.get(cacheKey);
+    if (cachedBookings) {
+      res.json(cachedBookings);
+      return;
+    }
+
+    const bookings = await prisma.booking.findMany(queryOptions);
+
+    // Provera da li ima sledeće stranice
+    let nextCursor: string | undefined = undefined;
+    if (bookings.length > parsedLimit) {
+      const nextItem = bookings.pop(); // Sklanjamo taj +1 element
+      nextCursor = nextItem?.id; // Njegov ID postaje sledeći cursor
+    }
+
+    logger.info({ count: bookings.length, month, apartmentId }, '✅ getBookings — učitano');
+    // Keširamo ovaj specifičan mesec/apartman
+    appCache.set(cacheKey, { bookings, nextCursor }, 1800); // 30 minuta
+    res.json({ bookings, nextCursor });
+  } catch (error) {
+    logger.error({ err: error }, '❌ getBookings — greška u bazi');
+    next(error); // ← Prosleđuje grešku globalnom handleru
+  }
+};
+
+// ─── POST /api/bookings ────────────────────────────────────────────────────────
+export const createBooking = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  logger.debug({ body: req.body, userId: req.user?.userId }, '📝 POST /api/bookings');
+
+  const parseResult = createBookingSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    const firstError = parseResult.error.issues[0]?.message ?? 'Neispravan unos';
+    logger.warn({ errors: parseResult.error.issues }, '⚠️ createBooking — validacija neuspešna');
+    res.status(400).json({ error: firstError });
+    return;
+  }
+
+  const { apartmentId, guest, email, phone, startDate, endDate } = parseResult.data;
+
+  try {
+    // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
+    const booking = await prisma.$transaction(
+      async (tx) => {
+        // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
+        // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
+        const apartments = await tx.$queryRaw<ApartmentRow[]>`
+        SELECT id FROM "Apartment" WHERE id = ${apartmentId} FOR UPDATE
+      `;
+
+        if (!apartments || apartments.length === 0) {
+          throw new Error('APARTMENT_NOT_FOUND');
+        }
+
+        // 2. Provera konflikta termina unutar bezbednog konteksta transakcije
+        const conflictingBooking = await tx.booking.findFirst({
+          where: {
+            apartmentId,
+            status: 'CONFIRMED',
+            startDate: { lt: endDate },
+            endDate: { gt: startDate },
+          },
+        });
+
+        if (conflictingBooking) {
+          throw new Error('BOOKING_CONFLICT');
+        }
+
+        // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
+        return await tx.booking.create({
+          data: {
+            apartmentId,
+            guest,
+            email,
+            phone: phone ?? '',
+            startDate,
+            endDate,
+            status: 'CONFIRMED',
+          },
+          include: { apartment: { select: { id: true, name: true } } },
+        });
+      },
+      {
+        // Postavljanje kraćeg timeout-a za transakciju radi performansi (opciono)
+        timeout: 5000,
+      },
+    );
+
+    // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
+    // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
+    try {
+      const keys = appCache.keys();
+      const bookingKeys = keys.filter((key) => key.startsWith('bookings:'));
+      bookingKeys.forEach((key) => appCache.del(key));
+      logger.debug(`🧹 Obrisano ${bookingKeys.length} ključeva rezervacija iz keša.`);
+    } catch (cacheErr) {
+      // Greška u kešu ne sme da sruši kreiranje rezervacije, samo je logujemo
+      logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
+    }
+
+    logger.info({ bookingId: booking.id }, '✅ Rezervacija kreirana unutar transakcije');
+    res.status(201).json({ message: 'Rezervacija je uspešno kreirana', booking });
+
+    sendBookingConfirmation(booking).catch((emailErr) => {
+      logger.error({ err: emailErr, bookingId: booking.id }, '⚠️ Email potvrde nije poslat');
+    });
+  } catch (error: unknown) {
+    // Obrada specifičnih grešaka koje su bačene unutar transakcije
+    if (error instanceof Error) {
+      if (error.message === 'APARTMENT_NOT_FOUND') {
+        logger.warn({ apartmentId }, '⚠️ createBooking — apartman ne postoji');
+        res.status(404).json({ error: `Apartman sa ID ${apartmentId} ne postoji` });
+        return;
+      }
+
+      if (error.message === 'BOOKING_CONFLICT') {
+        logger.warn({ apartmentId }, '⚠️ createBooking — konflikt termina unutar transakcije');
+        res.status(409).json({ error: 'Termin nije slobodan — postoji preklapajuća rezervacija' });
+        return;
+      }
+    }
+
+    logger.error({ err: error }, '❌ createBooking — neočekivana greška na transakciji');
+    next(error); // ← Prosleđuje grešku globalnom handleru
+  }
+};
+
+// ─── PATCH /api/bookings/:id ───────────────────────────────────────────────────
+
+export const updateBooking = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const { id } = req.params;
+  logger.debug(
+    { bookingId: id, body: req.body, userId: req.user?.userId },
+    '✏️ PATCH /api/bookings/:id',
+  );
+
+  const safeId = Array.isArray(id) ? id[0] : id;
+
+  if (!safeId) {
+    res.status(400).json({ error: 'ID rezervacije je obavezan.' });
+    return;
+  }
+
+  const parseResult = updateBookingSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    res.status(400).json({ error: parseResult.error.issues[0]?.message ?? 'Neispravan unos' });
+    return;
+  }
+
+  try {
+    // Pokretanje interaktivne transakcije sa sirovim zaključavanjem redova
+    const updatedBooking = await prisma.$transaction(
+      async (tx) => {
+        // 1. Provera i zaključavanje reda rezervacije koju menjamo da niko drugi ne može da je modifikuje paralelno
+        const bookingsForUpdate = await tx.$queryRaw<BookingRow[]>`
+        SELECT * FROM "Booking" WHERE id = ${safeId} FOR UPDATE
+      `;
+        const existing = bookingsForUpdate[0];
+
+        // Ako element ne postoji (odnosno ako je niz prazan ili null), bacamo grešku
+        if (!existing) {
+          throw new Error('BOOKING_NOT_FOUND');
+        }
+
+        // Kombinujemo stare i nove datume radi validacije konflikta termina
+        // Napomena: Ako baza vraća Date objekte, koristimo ih direktno
+        const finalStartDate = parseResult.data.startDate ?? new Date(existing.startDate);
+        const finalEndDate = parseResult.data.endDate ?? new Date(existing.endDate);
+        const finalApartmentId = existing.apartmentId;
+
+        if (finalEndDate <= finalStartDate) {
+          throw new Error('INVALID_DATE_RANGE');
+        }
+
+        // 2. Ako se menjaju datumi, zaključavamo apartman i proveravamo konflikt sa drugom rezervacijom
+        if (parseResult.data.startDate || parseResult.data.endDate) {
+          // Zaključavamo apartman radi bezbedne provere preklapanja
+          await tx.$queryRaw`
+          SELECT id FROM "Apartment" WHERE id = ${finalApartmentId} FOR UPDATE
+        `;
+
+          const conflictingBooking = await tx.booking.findFirst({
+            where: {
+              apartmentId: finalApartmentId,
+              status: 'CONFIRMED',
+              id: { not: safeId }, // Izuzimamo samu sebe iz provere preklapanja
+              startDate: { lt: finalEndDate },
+              endDate: { gt: finalStartDate },
+            },
+          });
+
+          if (conflictingBooking) {
+            throw new Error('BOOKING_CONFLICT');
+          }
+        }
+
+        // 3. Mapiranje polja za unos u Prisma ažuriranje
+        const updateData: Prisma.BookingUpdateInput = {};
+        if (parseResult.data.guest !== undefined) updateData.guest = parseResult.data.guest;
+        if (parseResult.data.email !== undefined) updateData.email = parseResult.data.email;
+        if (parseResult.data.phone !== undefined) updateData.phone = parseResult.data.phone ?? '';
+        if (parseResult.data.startDate !== undefined)
+          updateData.startDate = parseResult.data.startDate;
+        if (parseResult.data.endDate !== undefined) updateData.endDate = parseResult.data.endDate;
+        if (parseResult.data.status !== undefined) updateData.status = parseResult.data.status;
+
+        // 4. Izvršavanje ažuriranja u bazi unutar transakcije
+        return await tx.booking.update({
+          where: { id: safeId },
+          data: updateData,
+          include: { apartment: { select: { id: true, name: true } } },
+        });
+      },
+      {
+        timeout: 5000, // Sigurnosni timeout od 5 sekundi
+      },
+    );
+
+    // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
+    // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
+    try {
+      const keys = appCache.keys();
+      const bookingKeys = keys.filter((key) => key.startsWith('bookings:'));
+      bookingKeys.forEach((key) => appCache.del(key));
+      logger.debug(`🧹 Obrisano ${bookingKeys.length} ključeva rezervacija iz keša.`);
+    } catch (cacheErr) {
+      // Greška u kešu ne sme da sruši kreiranje rezervacije, samo je logujemo
+      logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
+    }
+
+    logger.info(
+      { bookingId: updatedBooking.id },
+      '✅ Rezervacija uspešno ažurirana unutar transakcije',
+    );
+    res.json({ message: 'Rezervacija je uspešno ažurirana', booking: updatedBooking });
+  } catch (error: unknown) {
+    // Obrada specifičnih transakcionih grešaka
+    if (error instanceof Error) {
+      if (error.message === 'BOOKING_NOT_FOUND') {
+        res.status(404).json({ error: 'Rezervacija ne postoji' });
+        return;
+      }
+      if (error.message === 'INVALID_DATE_RANGE') {
+        res.status(400).json({ error: 'Krajnji datum mora biti nakon početnog datuma.' });
+        return;
+      }
+      if (error.message === 'BOOKING_CONFLICT') {
+        res
+          .status(409)
+          .json({ error: 'Novi termin je zauzet, preklapanje sa drugom rezervacijom!' });
+        return;
+      }
+    }
+
+    logger.error({ err: error }, '❌ updateBooking — neočekivana greška na transakciji');
+    next(error); // ← Prosleđuje grešku globalnom handleru
+  }
+};
+
+// ─── DELETE /api/bookings/:id ──────────────────────────────────────────────────
+// Soft delete -> Menja status rezervacije u 'CANCELLED' unutar bezbedne transakcije
+export const deleteBooking = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const { id } = req.params;
+  logger.debug(
+    { bookingId: id, userId: req.user?.userId },
+    '🗑️ DELETE /api/bookings/:id (Soft Delete)',
+  );
+
+  const safeId = Array.isArray(id) ? id[0] : id;
+
+  if (!safeId) {
+    res.status(400).json({ error: 'ID rezervacije je obavezan.' });
+    return;
+  }
+
+  try {
+    // Pokrećemo transakciju i zaključavamo red kako bismo sprečili race condition tokom otkazivanja
+    const cancelledBooking = await prisma.$transaction(
+      async (tx) => {
+        // 1. Provera postojanja i zaključavanje reda rezervacije
+        const bookingsForUpdate = await tx.$queryRaw<BookingRow[]>`
+        SELECT id, status FROM "Booking" WHERE id = ${safeId} FOR UPDATE
+      `;
+
+        // Izvlačimo prvi element direktno iz niza
+        const existing = bookingsForUpdate[0];
+
+        // Ako element ne postoji (odnosno ako je niz prazan ili null), bacamo grešku
+        if (!existing) {
+          throw new Error('BOOKING_NOT_FOUND');
+        }
+
+        // Ako je rezervacija već otkazana, nema potrebe za ponovnim upisom
+        if (existing.status === 'CANCELLED') {
+          throw new Error('BOOKING_ALREADY_CANCELLED');
+        }
+
+        // 2. Izvršavanje soft-delete operacije (prebacivanje u CANCELLED)
+        return await tx.booking.update({
+          where: { id: safeId },
+          data: { status: 'CANCELLED' },
+          include: { apartment: { select: { id: true, name: true } } },
+        });
+      },
+      { timeout: 5000 },
+    );
+
+    // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
+    // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
+    try {
+      const keys = appCache.keys();
+      const bookingKeys = keys.filter((key) => key.startsWith('bookings:'));
+      bookingKeys.forEach((key) => appCache.del(key));
+      logger.debug(`🧹 Obrisano ${bookingKeys.length} ključeva rezervacija iz keša.`);
+    } catch (cacheErr) {
+      // Greška u kešu ne sme da sruši kreiranje rezervacije, samo je logujemo
+      logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
+    }
+
+    logger.info(
+      { bookingId: cancelledBooking.id },
+      '✅ Rezervacija uspešno otkazana (Soft Delete)',
+    );
+    res.json({ message: 'Rezervacija je uspešno otkazana', booking: cancelledBooking });
+
+    // Email obaveštenje o otkazivanju — fire & forget
+    sendBookingCancellation(cancelledBooking).catch((emailErr) => {
+      logger.error(
+        { err: emailErr, bookingId: cancelledBooking.id },
+        '⚠️ Email otkazivanja nije poslat',
+      );
+    });
+  } catch (error: unknown) {
+    // Rukovanje greškama usklađeno sa Zod v4 i TypeScript unknown standardom
+    if (error instanceof Error) {
+      if (error.message === 'BOOKING_NOT_FOUND') {
+        res.status(404).json({ error: 'Rezervacija ne postoji' });
+        return;
+      }
+      if (error.message === 'BOOKING_ALREADY_CANCELLED') {
+        res.status(400).json({ error: 'Rezervacija je već ranije otkazana.' });
+        return;
+      }
+    }
+
+    logger.error({ err: error }, '❌ deleteBooking — unutrašnja greška na transakciji');
+    next(error); // ← Prosleđuje grešku globalnom handleru
+  }
+};

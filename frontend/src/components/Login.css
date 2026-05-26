@@ -1,0 +1,101 @@
+/* Login.css */
+
+/* Centralizacija forme na ekranu (Flexbox raspored) */
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 80vh;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f9f9f9;
+}
+
+/* Bela kartica u kojoj se nalazi forma */
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 30px;
+  border: 1px solid #e0e0e0;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  background-color: #ffffff;
+}
+
+/* Glavni naslov forme */
+.login-title {
+  margin: 0 0 20px 0;
+  text-align: center;
+  color: #333333;
+  font-size: 24px;
+}
+
+/* Crvena kutija koja se prikazuje samo ako backend vrati grešku */
+.login-error-box {
+  color: #721c24;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  padding: 12px;
+  border-radius: 6px;
+  margin-bottom: 20px;
+  font-size: 14px;
+  font-weight: bold;
+  text-align: center;
+}
+
+/* Razmak između unosa (imejl, lozinka) */
+.login-input-group {
+  margin-bottom: 20px;
+}
+
+/* Stil za tekstualni opis iznad svakog input polja */
+.login-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #555555;
+  font-weight: 500;
+}
+
+/* Stil za sama tekstualna polja (imejl i lozinka) */
+.login-input {
+  width: 100%;
+  padding: 10px;
+  font-size: 16px;
+  border: 1px solid #cccccc;
+  border-radius: 6px;
+  box-sizing: border-box; /* Sprečava da padding proširi širinu inputa preko 100% */
+  outline: none;
+  transition: border-color 0.2s ease-in-out;
+}
+
+/* Efekat kada korisnik klikne unutar polja za unos koda */
+.login-input:focus {
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+/* Plavo dugme za slanje forme */
+.login-button {
+  width: 100%;
+  padding: 12px;
+  font-size: 16px;
+  background-color: #007bff;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: background-color 0.2s ease;
+}
+
+/* Efekat kada miš pređe preko dugmeta */
+.login-button:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+/* Izgled dugmeta kada je onemogućeno (dok traje provera na backendu) */
+.login-button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  opacity: 0.7;
+}

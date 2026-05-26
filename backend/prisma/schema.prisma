@@ -1,0 +1,84 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// npx prisma migrate dev --name add_token_version
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["driverAdapters"] // 🚀 OBAVEZNO ZA PRISMA 7 LOCAL DB
+}
+
+datasource db {
+  provider = "postgresql"
+  //url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  role      Role     @default(ADMIN)
+  createdAt DateTime @default(now())
+  tokenVersion Int      @default(0) // <--- DODAJTE OVO
+}
+
+model Apartment {
+  id       String    @id @default(cuid())
+  name     String    @unique 
+  description String
+  bookings Booking[]
+  requests ReservationRequest[]        
+}
+
+model Booking {
+  id          String        @id @default(cuid())
+  apartmentId String
+  guest       String
+  email       String
+  phone       String
+  startDate   DateTime
+  endDate     DateTime
+  status      BookingStatus @default(CONFIRMED)
+  createdAt   DateTime      @default(now())
+  apartment   Apartment     @relation(fields: [apartmentId], references: [id])
+  updatedAt   DateTime      @updatedAt  // DODATI
+  @@index([apartmentId])               // DODATI za performanse
+  @@index([apartmentId, startDate, endDate])  // Za kalendar pretragu
+}
+
+model ReservationRequest {
+  id          String        @id @default(cuid())
+  apartmentId String
+  guest       String
+  email       String
+  phone       String?
+  startDate   DateTime
+  endDate     DateTime
+  status      RequestStatus @default(PENDING_EMAIL)         
+  expiresAt   DateTime      
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt  
+  apartment   Apartment     @relation(fields: [apartmentId], references: [id])
+
+  @@index([status, expiresAt])
+}
+
+enum Role {
+  ADMIN
+  VIEWER
+}
+
+enum BookingStatus {
+  CONFIRMED
+  CANCELLED
+  
+}
+
+enum RequestStatus {
+  PENDING_EMAIL
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  EXPIRED
+}

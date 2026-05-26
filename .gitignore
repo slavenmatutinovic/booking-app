@@ -1,0 +1,33 @@
+# Zavisnosti
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment fajlovi - NIKADA ne commit-ovati .env, .env.local, itd.
+.env
+.env.*
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Logovi
+*.log
+npm-debug.log*
+pino.log
+
+# OS fajlovi
+.DS_Store
+Thumbs.db
+
+# VS Code backup fajlovi (nppBackup)
+**/*.bak
+**/nppBackup/
+
+# Notepad++ artefakti (fajlovi sa . ispred ekstenzije)
+**/*.-jsx
+**/*.-tsx
+**/*.-ts
+**/*.-js
