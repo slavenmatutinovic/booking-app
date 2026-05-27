@@ -117,3 +117,13 @@ export interface StatPillProps {
   label: string;
   value: string | number;
 }
+
+export interface ApiReservationRequest {
+  id: string;
+  guest: string;
+  email: string;
+  phone: string;
+  startDate: string;
+  endDate: string;
+  apartment: { name: string };
+}

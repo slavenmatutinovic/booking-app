@@ -40,16 +40,28 @@
 // =============================================================================
 
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import {
   getBookings,
   createBooking,
   updateBooking,
   deleteBooking,
 } from '../controllers/bookings.controller';
-import { createBookingRequest } from '../controllers/bookingRequests.controller';
+import {
+  createBookingRequest,
+  getPendingRequests,
+  rejectRequest,
+} from '../controllers/bookingRequests.controller';
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/authMiddleware';
-import { requestsLimiter } from '../server';
-import { Server } from 'tls';
+
+// 🛡️ DECOUPLED LIMITER: Declared inside this context to break circular dependency paths
+const standaloneRequestsLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes window profiles
+  max: 30, // Limit each client IP to 30 booking requests per cycle
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Previše poslatih zahteva. Pokušajte ponovo za 15 minuta.' },
+});
 
 const router = Router();
 
@@ -75,9 +87,8 @@ const router = Router();
 router.get('/', optionalAuth, getBookings);
 
 // Ova ruta je 100% javna — omogućava neulogovanim gostima da pošalju zahtev
-router.post('/requests', createBookingRequest);
 
-router.post('/requests', requestsLimiter, createBookingRequest);
+router.post('/requests', standaloneRequestsLimiter, createBookingRequest);
 
 // =============================================================================
 // 🔑 ADMIN-ONLY RUTE (obavezna prijava + ADMIN rola)
@@ -113,4 +124,27 @@ router.patch('/:id', requireAuth, requireAdmin, updateBooking);
  *   • Nema problema sa stranim ključevima
  */
 router.delete('/:id', requireAuth, requireAdmin, deleteBooking);
+
+// =============================================================================
+// 📬 🔑 AKCIJE ZA UPRAVLJANJE ZAHTEVIMA GOSTIJU (Strogo za ADMINA)
+// =============================================================================
+
+/**
+ * GET /api/bookings/requests/pending
+ * Admin povlači tabelu zahteva koji čekaju odobrenje
+ */
+router.get('/requests/pending', requireAuth, requireAdmin, getPendingRequests);
+
+/**
+ * POST /api/bookings/requests/approve
+ * Admin odobrava zahtev (šalje requestId u body, aktivira pametni kontroler)
+ */
+router.post('/requests/approve', requireAuth, requireAdmin, createBooking);
+
+/**
+ * PATCH /api/bookings/requests/:id/reject
+ * Admin odbija zahtev gosta (menja status u bazi)
+ */
+router.patch('/requests/:id/reject', requireAuth, requireAdmin, rejectRequest);
+
 export default router;

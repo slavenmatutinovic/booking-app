@@ -161,3 +161,69 @@ export const createBookingRequest = async (
     next(error); // ← Prosleđuje globalnom error handleru
   }
 };
+
+/**
+ * GET /api/bookings/requests/pending
+ * 🔑 ADMIN-ONLY: Vraća listu svih aktivnih zahteva gostiju na čekanju
+ */
+export const getPendingRequests = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  logger.debug(
+    { userId: req.user?.userId },
+    '📋 GET /api/bookings/requests/pending — Admin pregled',
+  );
+
+  try {
+    const requests = await prisma.reservationRequest.findMany({
+      where: { status: 'PENDING_APPROVAL' },
+      include: { apartment: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(requests);
+  } catch (error) {
+    logger.error({ err: error }, '❌ getPendingRequests — greška pri listanju zahteva');
+    next(error);
+  }
+};
+
+/**
+ * PATCH /api/bookings/requests/:id/reject
+ * 🔑 ADMIN-ONLY: Odbija zahtev gosta (menja status u REJECTED)
+ */
+export const rejectRequest = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const { id } = req.params;
+  const safeId = Array.isArray(id) ? id[0] : id;
+  logger.info({ requestId: safeId, adminId: req.user?.userId }, '❌ Odbijanje zahteva pokrenuto');
+
+  // 🚀 REŠENJE 1: Striktna provera uklanja 'string | undefined' rizik za tsconfig
+  if (!safeId || typeof safeId !== 'string') {
+    res.status(400).json({ error: 'ID zahteva je obavezan parametar.' });
+    return;
+  }
+
+  try {
+    const updatedRequest = await prisma.reservationRequest.update({
+      where: { id: safeId, status: 'PENDING_APPROVAL' }, // Menjamo samo ako je bio na čekanju
+      data: { status: 'REJECTED' },
+    });
+
+    logger.info({ requestId: updatedRequest.id }, '✅ Zahtev uspešno označen kao REJECTED');
+    res.json({ message: 'Zahtev za rezervaciju je uspešno odbijen.' });
+  } catch (error: any) {
+    // P2025 označava da zapis nije pronađen (ili je već odobren/odbijen)
+    if (error.code === 'P2025') {
+      res.status(404).json({ error: 'Zahtev ne postoji ili je već obrađen.' });
+      return;
+    }
+    logger.error({ err: error }, '❌ rejectRequest — neočekivana greška');
+    next(error);
+  }
+};

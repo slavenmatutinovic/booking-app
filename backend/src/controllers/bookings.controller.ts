@@ -25,7 +25,7 @@ import { Prisma } from '@prisma/client';
 import { sendBookingConfirmation, sendBookingCancellation } from '../utils/emailService';
 import { createBookingSchema, updateBookingSchema } from '../validators/booking.validator';
 import { appCache } from '../utils/cache';
-import { MAX_BOOKING_DAYS } from '@shared/index';
+import { MAX_BOOKING_DAYS } from '..//../../shared/index';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
 type ApartmentRow = { id: string };
@@ -148,24 +148,60 @@ export const createBooking = async (
 ): Promise<void> => {
   logger.debug({ body: req.body, userId: req.user?.userId }, '📝 POST /api/bookings');
 
-  const parseResult = createBookingSchema.safeParse(req.body);
-  if (!parseResult.success) {
-    const firstError = parseResult.error.issues[0]?.message ?? 'Neispravan unos';
-    logger.warn({ errors: parseResult.error.issues }, '⚠️ createBooking — validacija neuspešna');
-    res.status(400).json({ error: firstError });
-    return;
-  }
-
-  const { apartmentId, guest, email, phone, startDate, endDate } = parseResult.data;
-
+  // 🚀 1. PROVERAVAMO DA LI ODOBRAVAMO POSTOJEĆI ZAHTEV GOSTA
+  const { requestId } = req.body;
+  let bookingData: {
+    apartmentId: string;
+    guest: string;
+    email: string;
+    phone: string | null;
+    startDate: Date;
+    endDate: Date;
+  };
   try {
+    if (requestId) {
+      // Admin je kliknuo "Odobri" na tabeli zahteva
+      const request = await prisma.reservationRequest.findUnique({
+        where: { id: String(requestId) },
+      });
+
+      if (!request || request.status !== 'PENDING_APPROVAL') {
+        res.status(404).json({ error: 'Zahtev ne postoji, istakao je ili je već obrađen.' });
+        return;
+      }
+
+      // Pakujemo podatke iz zahteva za transakciju
+      bookingData = {
+        apartmentId: request.apartmentId,
+        guest: request.guest,
+        email: request.email,
+        phone: request.phone,
+        startDate: request.startDate,
+        endDate: request.endDate,
+      };
+    } else {
+      // Standardno ručno kreiranje od strane admina — pokrećemo Zod validaciju unosa
+
+      const parseResult = createBookingSchema.safeParse(req.body);
+      if (!parseResult.success) {
+        const firstError = parseResult.error.issues[0]?.message ?? 'Neispravan unos';
+        logger.warn(
+          { errors: parseResult.error.issues },
+          '⚠️ createBooking — validacija neuspešna',
+        );
+        res.status(400).json({ error: firstError });
+        return;
+      }
+      bookingData = parseResult.data;
+    }
+
     // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
     const booking = await prisma.$transaction(
       async (tx) => {
         // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
         // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
         const apartments = await tx.$queryRaw<ApartmentRow[]>`
-        SELECT id FROM "Apartment" WHERE id = ${apartmentId} FOR UPDATE
+        SELECT id FROM "Apartment" WHERE id = ${bookingData.apartmentId} FOR UPDATE
       `;
 
         if (!apartments || apartments.length === 0) {
@@ -175,10 +211,10 @@ export const createBooking = async (
         // 2. Provera konflikta termina unutar bezbednog konteksta transakcije
         const conflictingBooking = await tx.booking.findFirst({
           where: {
-            apartmentId,
+            apartmentId: bookingData.apartmentId,
             status: 'CONFIRMED',
-            startDate: { lt: endDate },
-            endDate: { gt: startDate },
+            startDate: { lt: bookingData.endDate },
+            endDate: { gt: bookingData.startDate },
           },
         });
 
@@ -189,12 +225,12 @@ export const createBooking = async (
         // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
         return await tx.booking.create({
           data: {
-            apartmentId,
-            guest,
-            email,
-            phone: phone ?? '',
-            startDate,
-            endDate,
+            apartmentId: bookingData.apartmentId,
+            guest: bookingData.guest,
+            email: bookingData.email,
+            phone: bookingData.phone ?? '',
+            startDate: bookingData.startDate,
+            endDate: bookingData.endDate,
             status: 'CONFIRMED',
           },
           include: { apartment: { select: { id: true, name: true } } },
@@ -221,20 +257,25 @@ export const createBooking = async (
     logger.info({ bookingId: booking.id }, '✅ Rezervacija kreirana unutar transakcije');
     res.status(201).json({ message: 'Rezervacija je uspešno kreirana', booking });
 
+    // Fire & forget slanje imejla potvrde gostu
     sendBookingConfirmation(booking).catch((emailErr) => {
       logger.error({ err: emailErr, bookingId: booking.id }, '⚠️ Email potvrde nije poslat');
     });
   } catch (error: unknown) {
     // Obrada specifičnih grešaka koje su bačene unutar transakcije
+    const failedApartmentId = req.body?.apartmentId ? String(req.body.apartmentId) : 'unknown';
     if (error instanceof Error) {
       if (error.message === 'APARTMENT_NOT_FOUND') {
-        logger.warn({ apartmentId }, '⚠️ createBooking — apartman ne postoji');
-        res.status(404).json({ error: `Apartman sa ID ${apartmentId} ne postoji` });
+        logger.warn({ apartmentId: failedApartmentId }, '⚠️ createBooking — apartman ne postoji');
+        res.status(404).json({ error: `Apartman sa ID ${failedApartmentId} ne postoji` });
         return;
       }
 
       if (error.message === 'BOOKING_CONFLICT') {
-        logger.warn({ apartmentId }, '⚠️ createBooking — konflikt termina unutar transakcije');
+        logger.warn(
+          { apartmentId: failedApartmentId },
+          '⚠️ createBooking — konflikt termina unutar transakcije',
+        );
         res.status(409).json({ error: 'Termin nije slobodan — postoji preklapajuća rezervacija' });
         return;
       }

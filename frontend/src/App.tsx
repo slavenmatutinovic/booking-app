@@ -42,10 +42,22 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import BookingCalendar from './components/BookingCalendar';
-import { useState, useEffect } from 'react';
+import { AdminDashboard } from './components/AdminDashboard';
+import { useState, useEffect, JSX } from 'react';
 import { getMe } from './api/auth';
 import { remoteLogger } from './utils/remoteLogger';
 import type { AuthUser } from '../../shared/index';
+
+// =============================================================================
+// 🛡️  ADMIN GUARD KOMPONENTA (Klijentski čuvar rute)
+// =============================================================================
+function RequireAdmin({ user, children }: { user: AuthUser | null; children: JSX.Element }) {
+  // Ako korisnik nije ulogovan ili nije ADMIN, tiho ga vraćamo na javni kalendar
+  if (!user || user.role !== 'ADMIN') {
+    return <Navigate to="/calendar" replace />;
+  }
+  return children;
+}
 
 // =============================================================================
 // 🎛️  GLAVNA KOMPONENTA
@@ -121,6 +133,7 @@ function App() {
           height: '100vh',
           fontSize: 16,
           color: '#6b7280',
+          fontFamily: 'sans-serif',
         }}
       >
         Učitavanje...
@@ -159,6 +172,15 @@ function App() {
             ) : (
               <Login onLoginSuccess={(loggedUser) => setUser(loggedUser)} />
             )
+          }
+        />
+        {/* 📬 🔒 ZAŠTIĆENA RUTA ZA UPRAVLJANJE ZAHTEVIMA GOSTIJU */}
+        <Route
+          path="/admin/requests"
+          element={
+            <RequireAdmin user={user}>
+              <AdminDashboard />
+            </RequireAdmin>
           }
         />
 

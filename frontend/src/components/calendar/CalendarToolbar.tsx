@@ -118,6 +118,16 @@ export function CalendarToolbar({
           </span>
         )}
 
+        {isAdmin && (
+          <button
+            onClick={() => navigate('/admin/requests')}
+            className="btn btn-primary"
+            style={{ marginRight: 8, background: '#3b82f6', color: '#fff' }}
+          >
+            Zahtevi na čekanju 📬
+          </button>
+        )}
+
         {/* Login / Logout */}
         {currentUser ? (
           <button onClick={onLogout} className="btn btn-danger">

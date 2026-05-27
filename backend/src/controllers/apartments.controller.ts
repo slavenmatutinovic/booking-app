@@ -81,11 +81,11 @@ export const getApartments = async (
     });
 
     // 3. Upis u keš na 1 sat (3600 sekundi)
-    const responsePayload = { apartments };
-    appCache.set(CACHE_KEYS.APARTMENTS, responsePayload, 3600);
+
+    appCache.set(CACHE_KEYS.APARTMENTS, apartments, 3600);
 
     logger.info({ count: apartments.length }, '✅ getApartments — učitano');
-    res.json(responsePayload);
+    res.json(apartments);
   } catch (error) {
     logger.error({ err: error }, '❌ getApartments — greška u bazi');
     console.error('Error in getApartments:', error); // Dodatni log za debagovanje

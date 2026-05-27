@@ -2,6 +2,7 @@
 // NOVI FAJL — CRUD za rezervacije
 import apiFetch from './index';
 import { remoteLogger } from '../utils/remoteLogger';
+import { ApiReservationRequest } from '../types/ui';
 
 // Tip koji koristi BookingCalendar.tsx interno
 export interface BookingAPI {
@@ -174,4 +175,53 @@ export const updateBooking = async (
 
   remoteLogger({ level: 'info', message: `Rezervacija ${id} ažurirana` });
   return data.booking;
+};
+
+// ─── GET /api/bookings/requests/pending (Admin uvid) ──────────────────────────
+export const getPendingRequests = async (): Promise<ApiReservationRequest[]> => {
+  remoteLogger({
+    level: 'info',
+    message: 'GET /api/bookings/requests/pending — Povlačenje zahteva',
+  });
+
+  const response = await apiFetch('bookings/requests/pending');
+  const data = await response.json();
+
+  if (!response.ok) {
+    remoteLogger({
+      level: 'error',
+      message: 'Greška pri čitanju zahteva na čekanju',
+      errorDetails: data,
+    });
+    throw new Error(data.error || 'Greška pri čitanju zahteva.');
+  }
+
+  return data;
+};
+
+// ─── POST /api/bookings/requests/approve (Pametno odobravanje) ────────────────
+export const approveBookingRequest = async (requestId: string): Promise<ApiReservationRequest> => {
+  remoteLogger({
+    level: 'info',
+    message: `POST /api/bookings/requests/approve — Odobravanje zahteva ${requestId}`,
+  });
+
+  // 🚀 ŠALJEMO REQUEST_ID U BODY-JU: Aktivira naš pametni kontroler na beku
+  const response = await apiFetch('bookings/requests/approve', {
+    method: 'POST',
+    body: JSON.stringify({ requestId }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    remoteLogger({
+      level: 'error',
+      message: 'Greška pri odobravanju zahteva',
+      errorDetails: data,
+    });
+    throw new Error(data.error || 'Greška pri odobravanju zahteva.');
+  }
+
+  return data;
 };
