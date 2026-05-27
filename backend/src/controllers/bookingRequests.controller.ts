@@ -40,16 +40,19 @@
 // 📋 ODGOVORNOSTI OVOG KONTROLERA:
 //
 //   ✅ createBookingRequest — Kreira novi zahtev za odobrenje
-//   🔮 TODO: getBookingRequests — Admin pregledava sve zahteve
-//   🔮 TODO: approveBookingRequest — Admin odobrava zahtev (postaje Booking)
-//   🔮 TODO: rejectBookingRequest — Admin odbija zahtev (obaveštava gosta)
-//
+//   ✅ getPendingRequests — Admin vidi listu svih PENDING zahteva
+//  ✅ rejectRequest — Admin odbija zahtev (status → REJECTED)
 // =============================================================================
 
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { createGuestRequestSchema } from '../validators/booking.validator';
+import {
+  sendNewRequestToAdmin,
+  sendRequestReceivedToGuest,
+  sendRequestRejectedToGuest,
+} from '../utils/emailService';
 
 // =============================================================================
 // 📬 POST /api/bookings/requests
@@ -131,6 +134,14 @@ export const createBookingRequest = async (
         status: 'PENDING_APPROVAL',
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // +24h
       },
+      include: {
+        apartment: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
 
     logger.info(
@@ -147,15 +158,25 @@ export const createBookingRequest = async (
       requestId: newRequest.id,
     });
 
-    // 🔮 TODO: Slanje email obaveštenja adminu (fire & forget):
-    //   sendAdminNotification(newRequest).catch(err =>
-    //     logger.error({ err }, '⚠️ Email obaveštenja adminu nije poslat')
-    //   );
-    //
-    // 🔮 TODO: Slanje potvrde gostu da je zahtev primljen:
-    //   sendRequestConfirmation(newRequest).catch(err =>
-    //     logger.error({ err }, '⚠️ Potvrda zahteva gostu nije poslata')
-    //   );
+    const emailData = {
+      id: newRequest.id,
+      guest: newRequest.guest,
+      email: newRequest.email,
+      phone: newRequest.phone,
+      startDate: newRequest.startDate,
+      endDate: newRequest.endDate,
+      apartment: newRequest.apartment,
+    };
+
+    // Email adminu — obaveštenje o novom zahtevu
+    sendNewRequestToAdmin(emailData).catch((err) => {
+      logger.error({ err, requestId: newRequest.id }, '⚠️ Admin email o novom zahtevu nije poslat');
+    });
+
+    // Email gostu — potvrda prijema zahteva
+    sendRequestReceivedToGuest(emailData).catch((err) => {
+      logger.error({ err, requestId: newRequest.id }, '⚠️ Email prijema zahteva gostu nije poslat');
+    });
   } catch (error) {
     logger.error({ err: error }, '❌ Greška pri kreiranju zahteva za rezervaciju');
     next(error); // ← Prosleđuje globalnom error handleru
@@ -203,13 +224,23 @@ export const rejectRequest = async (
   const safeId = Array.isArray(id) ? id[0] : id;
   logger.info({ requestId: safeId, adminId: req.user?.userId }, '❌ Odbijanje zahteva pokrenuto');
 
-  // 🚀 REŠENJE 1: Striktna provera uklanja 'string | undefined' rizik za tsconfig
   if (!safeId || typeof safeId !== 'string') {
     res.status(400).json({ error: 'ID zahteva je obavezan parametar.' });
     return;
   }
 
   try {
+    // Dohvat zahteva pre update-a da bismo imali podatke za email
+    const existingRequest = await prisma.reservationRequest.findUnique({
+      where: { id: safeId },
+      include: { apartment: { select: { id: true, name: true } } },
+    });
+
+    if (!existingRequest || existingRequest.status !== 'PENDING_APPROVAL') {
+      res.status(404).json({ error: 'Zahtev ne postoji ili je već obrađen.' });
+      return;
+    }
+
     const updatedRequest = await prisma.reservationRequest.update({
       where: { id: safeId, status: 'PENDING_APPROVAL' }, // Menjamo samo ako je bio na čekanju
       data: { status: 'REJECTED' },
@@ -217,6 +248,18 @@ export const rejectRequest = async (
 
     logger.info({ requestId: updatedRequest.id }, '✅ Zahtev uspešno označen kao REJECTED');
     res.json({ message: 'Zahtev za rezervaciju je uspešno odbijen.' });
+
+    sendRequestRejectedToGuest({
+      id: existingRequest.id,
+      guest: existingRequest.guest,
+      email: existingRequest.email,
+      phone: existingRequest.phone,
+      startDate: existingRequest.startDate,
+      endDate: existingRequest.endDate,
+      apartment: existingRequest.apartment,
+    }).catch((err) => {
+      logger.error({ err, requestId: existingRequest.id }, '⚠️ Email odbijanja gostu nije poslat');
+    });
   } catch (error: any) {
     // P2025 označava da zapis nije pronađen (ili je već odobren/odbijen)
     if (error.code === 'P2025') {
@@ -224,6 +267,27 @@ export const rejectRequest = async (
       return;
     }
     logger.error({ err: error }, '❌ rejectRequest — neočekivana greška');
+    next(error);
+  }
+};
+
+// =============================================================================
+// 📊 GET /api/bookings/requests/count — [NOVO] Broj pending zahteva za badge
+// =============================================================================
+
+export const getPendingRequestsCount = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const count = await prisma.reservationRequest.count({
+      where: { status: 'PENDING_APPROVAL' },
+    });
+
+    res.json({ count });
+  } catch (error) {
+    logger.error({ err: error }, '❌ getPendingRequestsCount — greška');
     next(error);
   }
 };

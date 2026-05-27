@@ -117,7 +117,6 @@ export interface ReservationRequest {
   startDate: string;
   endDate: string;
   status: RequestStatus;
-  token: string;
   expiresAt: string;
   createdAt: string;
   apartment?: { id: string; name: string };

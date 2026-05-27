@@ -198,15 +198,23 @@ export const getPendingRequests = async (): Promise<ApiReservationRequest[]> => 
 
   return data;
 };
+// ─── GET /api/bookings/requests/count (Badge za navigaciju) ───────────────────
+export const getPendingRequestsCount = async (): Promise<number> => {
+  const response = await apiFetch('bookings/requests/count');
+  if (!response.ok) return 0; // Tiho ne prikazuje badge ako API zakaže
+  const data = await response.json();
+  return data.count ?? 0;
+};
 
 // ─── POST /api/bookings/requests/approve (Pametno odobravanje) ────────────────
-export const approveBookingRequest = async (requestId: string): Promise<ApiReservationRequest> => {
+export const approveBookingRequest = async (
+  requestId: string,
+): Promise<{ message: string; booking: BookingAPI }> => {
   remoteLogger({
     level: 'info',
     message: `POST /api/bookings/requests/approve — Odobravanje zahteva ${requestId}`,
   });
 
-  // 🚀 ŠALJEMO REQUEST_ID U BODY-JU: Aktivira naš pametni kontroler na beku
   const response = await apiFetch('bookings/requests/approve', {
     method: 'POST',
     body: JSON.stringify({ requestId }),
@@ -215,12 +223,28 @@ export const approveBookingRequest = async (requestId: string): Promise<ApiReser
   const data = await response.json();
 
   if (!response.ok) {
-    remoteLogger({
-      level: 'error',
-      message: 'Greška pri odobravanju zahteva',
-      errorDetails: data,
-    });
+    remoteLogger({ level: 'error', message: 'Greška pri odobravanju zahteva', errorDetails: data });
     throw new Error(data.error || 'Greška pri odobravanju zahteva.');
+  }
+
+  return data; // { message: string, booking: BookingAPI }
+};
+
+export const rejectBookingRequest = async (requestId: string): Promise<{ message: string }> => {
+  remoteLogger({
+    level: 'info',
+    message: `PATCH /api/bookings/requests/${requestId}/reject — Odbijanje zahteva`,
+  });
+
+  const response = await apiFetch(`bookings/requests/${requestId}/reject`, {
+    method: 'PATCH',
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    remoteLogger({ level: 'error', message: 'Greška pri odbijanju zahteva', errorDetails: data });
+    throw new Error(data.error || 'Greška pri odbijanju zahteva.');
   }
 
   return data;
