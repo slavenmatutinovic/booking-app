@@ -41,7 +41,7 @@
 //
 //   ✅ createBookingRequest — Kreira novi zahtev za odobrenje
 //   ✅ getPendingRequests — Admin vidi listu svih PENDING zahteva
-//  ✅ rejectRequest — Admin odbija zahtev (status → REJECTED)
+//   ✅ rejectRequest — Admin odbija zahtev (status → REJECTED)
 // =============================================================================
 
 import { Request, Response, NextFunction } from 'express';
@@ -55,11 +55,27 @@ import {
   sendBookingConfirmation,
 } from '../utils/emailService';
 import { appCache, CACHE_KEYS } from '../utils/cache';
-import { ApiError } from '@shared/index';
+import { ApiError, RequestStatus } from '@shared/index';
+import { Mutex } from 'async-mutex'; // ⚡ UVOZIMO MEMORIJSKI KATANAC
 
 // =============================================================================
 // 📬 POST /api/bookings/requests
 // =============================================================================
+
+// Kreiramo centralnu mapu katanaca u memoriji servera (ApartmentId -> Mutex katanac)
+const apartmentLocks = new Map<string, Mutex>();
+
+/**
+ * Pomoćna funkcija koja bezbedno vraća ili kreira katanac za konkretan apartman
+ */
+const getApartmentMutex = (apartmentId: string): Mutex => {
+  let mutex = apartmentLocks.get(apartmentId);
+  if (!mutex) {
+    mutex = new Mutex();
+    apartmentLocks.set(apartmentId, mutex);
+  }
+  return mutex;
+};
 
 /**
  * Prihvata zahtev za rezervaciju od neprijavljenog gosta ili viewer-a.
@@ -104,99 +120,63 @@ export const createBookingRequest = async (
       endDate: Date; // Zod v4.4.3 transformisao string u Date
     };
 
-    // ⚡ KORAK 1: Pokrećemo interaktivnu transakciju
-    const newRequest = await prisma.$transaction(
-      async (tx) => {
-        // 🔒 KORAK 2: Ekskluzivno zaključavanje reda apartmana ('FOR UPDATE')
-        // Ovo primorava paralelne mrežne klikove da stanu u red i izvršavaju se jedan po jedan!
-        await tx.$queryRaw`
-        SELECT * FROM "Apartment" WHERE id = ${apartmentId} FOR UPDATE
-      `;
+    // 🔒 DOHVATAMO KATANAC IZ MEMORIJE ZA OVAJ APARTMAN
+    const mutex = getApartmentMutex(apartmentId);
 
-        // ─── Provjera konflikta sa potvrđenim rezervacijama ───────────────────────
-        const conflictingBooking = await prisma.booking.findFirst({
-          where: {
-            apartmentId,
-            status: 'CONFIRMED', // Gledamo samo čvrsto zauzete termine
-            // Standardna overlap logika: A↔B se preklapaju ako A.start < B.end i A.end > B.start
-            startDate: { lt: endDate },
-            endDate: { gt: startDate },
-          },
-        });
+    // runExclusive blokira sve ostale async niti u Node.js-u za ovaj apartman.
+    // Nit ulazi unutra, obavlja brz posao sa bazom i izlazi, tek onda propušta sledeću!
+    const newRequest = await mutex.runExclusive(async () => {
+      // 1. PROVERA KONFLIKTA SA POTVRĐENIM REZERVACIJAMA (Standardni, ultra-brzi upit)
+      const conflictingBooking = await prisma.booking.findFirst({
+        where: {
+          apartmentId,
+          status: 'CONFIRMED',
+          startDate: { lt: endDate },
+          endDate: { gt: startDate },
+        },
+      });
 
-        if (conflictingBooking) {
-          logger.warn({ apartmentId, startDate, endDate }, '⚠️ Zahtev odbijen — termin zauzet');
-          const errorResponse: ApiError = { error: 'Izabrani termin je u međuvremenu zauzet.' };
-          res.status(409).json(errorResponse);
-          return;
-        }
+      if (conflictingBooking) {
+        throw new Error('Izabrani termin je u međuvremenu zauzet potvrđenom rezervacijom.');
+      }
 
-        // ─── 🛡️ BROJANJE POSTOJEĆIH ZAHTEVA NA ČEKANJU ZA TAJ TERMIN ─────────
-        // Pošto je apartman zaključan, ovaj count je 100% tačan za svaku pojedinačnu nit u redu
-        const currentPendingCount = await prisma.reservationRequest.count({
-          where: {
-            apartmentId,
-            status: 'PENDING_APPROVAL',
-            startDate: { lt: endDate },
-            endDate: { gt: startDate },
-          },
-        });
+      // 2. TAČNO I BEZBEDNO BROJANJE ZAHTEVA NA ČEKANJU (Čita iz baze hronološki jedan po jedan)
+      const currentPendingCount = await prisma.reservationRequest.count({
+        where: {
+          apartmentId,
+          status: 'PENDING_APPROVAL',
+          startDate: { lt: endDate },
+          endDate: { gt: startDate },
+        },
+      });
 
-        // Ako već imamo 5 ili više ljudi koji čekaju odobrenje za ovaj termin, blokiramo dalji spam
-        if (currentPendingCount >= MAX_PENDING_PER_SLOT) {
-          logger.warn(
-            { apartmentId, startDate, endDate, count: currentPendingCount },
-            '⚠️ Zahtev odbijen — dostignut maksimalan broj ponuda',
-          );
-          const errorResponse: ApiError = {
-            error: `Lista čekanja za ovaj termin je puna. Maksimalan broj zahteva na pregledu je ${MAX_PENDING_PER_SLOT}.`,
-          };
-          res.status(429).json(errorResponse); // 429 Too Many Requests
-          return;
-        }
+      if (currentPendingCount >= MAX_PENDING_PER_SLOT) {
+        throw new Error(
+          `Lista čekanja za ovaj termin je puna. Maksimalan broj zahteva na pregledu je ${MAX_PENDING_PER_SLOT}.`,
+        );
+      }
 
-        // ─── Kreiranje zahteva ────────────────────────────────────────────────────
-        //
-        // Status PENDING_APPROVAL znači: zahtev je primljen i čeka admin odluku.
-        // Status PENDING_EMAIL bi koristili ako admin treba e-mail potvrdu — nije u upotrebi.
-        //
-        // expiresAt: 24 sata od sada — ako admin ne reaguje, cron postavi na EXPIRED.
-        // Ovo sprečava nagomilavanje zastarelih zahtjeva u bazi.
-        return await prisma.reservationRequest.create({
-          data: {
-            apartmentId: String(apartmentId),
-            guest: guest.trim(),
-            email: email.trim().toLowerCase(), // Normalizuj email za konzistentnost
-            phone: phone?.trim() || '',
-            startDate: startDate,
-            endDate: endDate,
-            status: 'PENDING_APPROVAL',
-            expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // +24h
-          },
-          include: {
-            apartment: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          },
-        });
-      },
-      {
-        maxWait: 4000, // Čeka u redu maksimalno 4 sekunde
-        timeout: 5000, // Prekida ako transakcija unutar sebe traje preko 5 sekundi
-      },
-    );
+      // 3. KREIRANJE ZAHTEVA U BAZI (Običan, lagan upit - nema više teške transakcije!)
+      const pendingStatus: RequestStatus = 'PENDING_APPROVAL';
+      return await prisma.reservationRequest.create({
+        data: {
+          apartmentId: String(apartmentId),
+          guest: guest.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone?.trim() || '',
+          startDate: startDate,
+          endDate: endDate,
+          status: pendingStatus,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // +24h
+        },
+        include: {
+          apartment: { select: { id: true, name: true } },
+        },
+      });
+    });
 
-    // 🛡️ REŠENJE ZA TS GREŠKU: Type Guard garantuje kompajleru da newRequest sigurno postoji!
-    if (!newRequest) {
-      const errorResponse: ApiError = {
-        error: 'Došlo je do neočekivane greške pri upisu zahteva.',
-      };
-      res.status(500).json(errorResponse);
-      return;
-    }
+    // ─── SVE ISPOD OVE LINIJE SE IZVRŠAVA NAKON ŠTO JE KATANAC OSREĐEN ───────
+    // Node.js je već propustio sledeći zahtev iz reda, a mi na miru završavamo mrežni rad
 
     appCache.del(CACHE_KEYS.PENDING_REQUESTS);
 
@@ -205,10 +185,6 @@ export const createBookingRequest = async (
       '✅ Zahtev za rezervaciju upisan u bazu',
     );
 
-    // ─── Odgovor klijentu ─────────────────────────────────────────────────────
-    //
-    // Vraćamo samo ID i poruku — ne vraćamo ceo objekat da ne eksponujemo
-    // interne detalje (npr. expiresAt, interne ID-jeve).
     res.status(201).json({
       message: 'Vaš zahtev je uspešno prosleđen adminu na odobrenje.',
       requestId: newRequest.id,
@@ -224,18 +200,19 @@ export const createBookingRequest = async (
       apartment: newRequest.apartment,
     };
 
-    // Email adminu — obaveštenje o novom zahtevu
-    sendNewRequestToAdmin(emailData).catch((err) => {
-      logger.error({ err, requestId: newRequest.id }, '⚠️ Admin email o novom zahtevu nije poslat');
-    });
+    sendNewRequestToAdmin(emailData).catch((err) => logger.error(err));
+    sendRequestReceivedToGuest(emailData).catch((err) => logger.error(err));
+  } catch (error: unknown) {
+    const errorMsg =
+      error instanceof Error ? error.message : 'Izabrani termin je zauzet ili je lista puna.';
+    logger.warn(
+      { apartmentId: req.body.apartmentId, errorMsg },
+      '⚠️ createBookingRequest — zahtev bezbedno odbijen preko Mutex-a',
+    );
 
-    // Email gostu — potvrda prijema zahteva
-    sendRequestReceivedToGuest(emailData).catch((err) => {
-      logger.error({ err, requestId: newRequest.id }, '⚠️ Email prijema zahteva gostu nije poslat');
-    });
-  } catch (error) {
-    logger.error({ err: error }, '❌ Greška pri kreiranju zahteva za rezervaciju');
-    next(error); // ← Prosleđuje globalnom error handleru
+    const isLimitError = errorMsg.includes('Lista čekanja');
+    const errorResponse: ApiError = { error: errorMsg };
+    res.status(isLimitError ? 429 : 409).json(errorResponse);
   }
 };
 

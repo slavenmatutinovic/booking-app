@@ -17,7 +17,7 @@ const TEST_PAYLOAD = {
 
 // Ako tvoja ruta zahtijeva admin login, ovde stavi autentifikacioni kolačić (token) koji uzmeš iz browsera
 const COOKIE_HEADER =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbXBlc2ZrdmkwMDAwZmt0dGtlY2gzMjR4Iiwicm9sZSI6IkFETUlOIiwidG9rZW5WZXJzaW9uIjozNSwiaWF0IjoxNzc5OTcyMzc4LCJleHAiOjE3Nzk5Nzk1Nzh9.yiXSSgscjS_ufnkK9jikBKXX8p2zKYpj4-WTJZb6DV0';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbXBlc2ZrdmkwMDAwZmt0dGtlY2gzMjR4Iiwicm9sZSI6IkFETUlOIiwidG9rZW5WZXJzaW9uIjozNSwiaWF0IjoxNzc5OTgzOTg4LCJleHAiOjE3Nzk5OTExODh9.fh8GQ2n_70DMBkmPcb8pjHHW8mwfCloH3tA94PS9e84eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbXBlc2ZrdmkwMDAwZmt0dGtlY2gzMjR4Iiwicm9sZSI6IkFETUlOIiwidG9rZW5WZXJzaW9uIjozNSwiaWF0IjoxNzc5OTkxODY1LCJleHAiOjE3Nzk5OTkwNjV9.d6aYGWe1FOuktBEPh_uZTysOv8AWZCE284c3gJip_Bs';
 
 async function runConcurrencyTest() {
   console.log(`🚀 Pokrećem stres test: Ispaljujem ${TOTAL_REQUESTS} istovremenih zahtjeva...`);
@@ -88,9 +88,15 @@ async function runConcurrencyTest() {
   if (uspešni === 1) {
     console.log('🏆 TEST USPEŠAN: Baza je savršeno odbranila integritet! Nema duplih rezervacija.');
   } else if (uspešni > 1) {
-    console.log(
-      '🚨 ALARM: Pronađen RACE CONDITION! Više od jedne rezervacije je upisano u isti termin.',
-    );
+    if (uspešni === 5) {
+      console.log(
+        '🏆 TEST USPEŠAN: Mutex je savršeno odbranio bazu! Upisano je tačno 5 zahteva, ostali su bezbedno odbijeni.',
+      );
+    } else if (uspešni > 5) {
+      console.log('🚨 ALARM: Pronađen RACE CONDITION! Upisano je više od 5 zahteva u isti termin.');
+    } else {
+      console.log('⚠️ PAŽNJA: Proveri slobodne termine ili validnost tokena.');
+    }
   } else {
     console.log(
       '⚠️ PAŽNJA: Nijedan zahtjev nije uspeo. Proveri ID apartmana ili validnost JWT tokena.',
