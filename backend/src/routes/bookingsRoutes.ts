@@ -51,6 +51,7 @@ import {
   createBookingRequest,
   getPendingRequests,
   rejectRequest,
+  getPendingRequestsCount,
 } from '../controllers/bookingRequests.controller';
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/authMiddleware';
 
@@ -146,5 +147,7 @@ router.post('/requests/approve', requireAuth, requireAdmin, createBooking);
  * Admin odbija zahtev gosta (menja status u bazi)
  */
 router.patch('/requests/:id/reject', requireAuth, requireAdmin, rejectRequest);
+
+router.get('/requests/count', requireAuth, requireAdmin, getPendingRequestsCount);
 
 export default router;

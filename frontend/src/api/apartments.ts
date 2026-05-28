@@ -8,12 +8,15 @@ import { Apartment } from '../../../shared';
 export interface ApartmentsResponse {
   apartments: Apartment[];
 }
+export interface ApiErrorResponse {
+  error: string;
+}
 
 export const getApartments = async (): Promise<Apartment[]> => {
   remoteLogger({ level: 'info', message: 'Učitavanje apartmana iz API-ja' });
 
   const response = await apiFetch('apartments');
-  const data = await response.json();
+  const data: ApartmentsResponse | ApiErrorResponse = await response.json();
 
   if (!response.ok) {
     remoteLogger({
@@ -21,9 +24,11 @@ export const getApartments = async (): Promise<Apartment[]> => {
       message: 'Greška pri učitavanju apartmana',
       errorDetails: data,
     });
-    throw new Error(data.error || 'Greška pri učitavanju apartmana');
+    const errorMessage = 'error' in data ? data.error : 'Greška pri učitavanju apartmana';
+    throw new Error(errorMessage);
   }
-  const apartmentsCount = data?.length || 0;
+  const apartmentsList = (data as ApartmentsResponse).apartments || [];
+  const apartmentsCount = apartmentsList.length;
   remoteLogger({ level: 'info', message: `Učitano apartmana: ${apartmentsCount}` });
-  return data;
+  return apartmentsList;
 };

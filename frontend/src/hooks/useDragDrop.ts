@@ -1,126 +1,103 @@
-// =============================================================================
-// 🪝 frontend/src/hooks/useDragDrop.ts
-// =============================================================================
-//
-// Enkapsulira svu drag & drop logiku za booking barove.
-//
-// Problem koji rešava — stale closure:
-//   Drag handler se kreira jednom pri mouseDown, ali bookings niz se menja.
-//   Rešenje: bookingsRef.current uvek pokazuje na najnoviji niz
-//   bez potrebe za ponovnim kreiranjem event listenera.
-//
-// Tok:
-//   1. mouseDown na baru  → setDragging({bookingId, startX, originalDates})
-//   2. mousemove          → izračunaj delta, optimistički pomeri booking
-//   3. mouseup            → provjeri konflikt:
-//                           - konflikt → rollback na originalne datume
-//                           - ok       → PATCH /api/bookings/:id
-// =============================================================================
+// frontend/src/hooks/useDragDrop.ts
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { addDays } from 'date-fns';
-import type { FrontendBooking, DraggingState } from '../types/ui';
-import { bookingsConflict, executeMoveBooking } from './calendarActions';
+import type { DraggingState } from '../types/ui';
 import { formatDate } from '../utils/dates';
 
 interface UseDragDropProps {
-  bookings: FrontendBooking[];
-  setBookings: React.Dispatch<React.SetStateAction<FrontendBooking[]>>;
   canEdit: boolean;
   dayW: number;
+  days: Date[];
+  onBookingUpdate: (
+    bookingId: string,
+    payload: { startDate: string; endDate: string },
+  ) => Promise<void>;
 }
 
-interface UseDragDropResult {
-  dragging: DraggingState | null;
-  setDragging: (s: DraggingState | null) => void;
-  dragValid: boolean;
-}
+export const useDragDrop = ({ canEdit, dayW, days, onBookingUpdate }: UseDragDropProps) => {
+  // Držimo se tvog originalnog DraggingState tipa iz ui.ts
+  const [dragging, setDragging] = useState<DraggingState | null>(null);
+  const [dragValid] = useState<boolean>(true);
 
-export function useDragDrop({
-  bookings, setBookings, canEdit, dayW,
-}: UseDragDropProps): UseDragDropResult {
+  // Pokretanje drag procesa na klik miša
+  const startDrag = useCallback(
+    (state: DraggingState) => {
+      if (!canEdit) return;
+      setDragging(state);
 
-  const [dragging,  setDragging]  = useState<DraggingState | null>(null);
-  const [dragValid, setDragValid] = useState(true);
+      // Postavljamo početni CSS offset na 0 piksela na HTML koren aplikacije
+      document.documentElement.style.setProperty('--drag-offset-x', '0px');
+    },
+    [canEdit],
+  );
 
-  // Refs za stale-closure problem
-  const bookingsRef = useRef<FrontendBooking[]>(bookings);
-  const dayWRef     = useRef<number>(dayW);
+  // Globalni handler za pomeranje miša - SADA KORISTI PIKSELE ZA MAKSIMALNU GLATKOĆU
+  const handleGlobalMouseMove = useCallback(
+    (clientX: number) => {
+      if (!dragging) return;
 
-  useEffect(() => { bookingsRef.current = bookings; }, [bookings]);
-  useEffect(() => { dayWRef.current = dayW;          }, [dayW]);
+      // Računamo tačan pomeraj miša u pikselima
+      const deltaX = clientX - dragging.startX;
 
-  useEffect(() => {
-    if (!dragging || !canEdit) return;
+      // Direktno menjamo CSS varijablu na ekranu.
+      // Browser ovo pomera trenutno (60+ FPS) jer preskače skupi React re-render!
+      document.documentElement.style.setProperty('--drag-offset-x', `${deltaX}px`);
+    },
+    [dragging],
+  );
 
-    const onMove = (e: MouseEvent) => {
-      const current = bookingsRef.current;
-      const delta   = Math.round((e.clientX - dragging.startX) / dayWRef.current);
-      const newStart = addDays(dragging.originalStart, delta);
-      const newEnd   = addDays(dragging.originalEnd,   delta);
+  // Globalni handler za puštanje miša (kraj drag-and-drop procesa)
+  const handleGlobalMouseUp = useCallback(
+    async (clientX: number) => {
+      if (!dragging) return;
 
-      const tmp = { start: formatDate(newStart), end: formatDate(newEnd) };
-      const conflict = current.some(b =>
-        b.id !== dragging.bookingId &&
-        b.apartmentId === dragging.apartmentId &&
-        bookingsConflict(tmp, b)
-      );
+      const deltaX = clientX - dragging.startX;
 
-      setDragValid(!conflict);
-      setBookings(prev => prev.map(b =>
-        b.id !== dragging.bookingId
-          ? b
-          : { ...b, start: formatDate(newStart), end: formatDate(newEnd) }
-      ));
-    };
+      // Na osnovu ukupnog pomeraja u pikselima, računamo konačan offset u danima
+      const daysOffset = Math.round(deltaX / dayW);
 
-    const onUp = () => {
-      const current = bookingsRef.current;
-      const dragged = current.find(b => b.id === dragging.bookingId);
+      // Čistimo CSS varijablu sa ekrana odmah po završetku
+      document.documentElement.style.removeProperty('--drag-offset-x');
+      setDragging(null);
 
-      if (dragged) {
-        const conflict = current.some(b =>
-          b.id !== dragging.bookingId &&
-          b.apartmentId === dragged.apartmentId &&
-          bookingsConflict(dragged, b)
-        );
+      // Ako se traka na kraju nije pomerila za ceo dan, prekidamo i ne trošimo API
+      if (daysOffset === 0) return;
 
-        if (conflict) {
-          // Rollback
-          setBookings(prev => prev.map(b =>
-            b.id !== dragging.bookingId ? b : {
-              ...b,
-              start: formatDate(dragging.originalStart),
-              end:   formatDate(dragging.originalEnd),
-            }
-          ));
-        } else {
-          // Sačuvaj na serveru
-          executeMoveBooking(
-            dragging.bookingId,
-            dragged.start,
-            dragged.end,
-            setBookings,
-            {
-              originalStart: formatDate(dragging.originalStart),
-              originalEnd:   formatDate(dragging.originalEnd),
-            }
-          );
-        }
+      // Računamo nove datume dodavanjem offseta na originalne Date objekte
+      const newStartDate = addDays(dragging.originalStart, daysOffset);
+      const newEndDate = addDays(dragging.originalEnd, daysOffset);
+
+      // Granice trenutno vidljivog kalendara
+      const minCalendarDate = days[0];
+      const maxCalendarDate = days[days.length - 1];
+
+      if (newStartDate < minCalendarDate || newEndDate > maxCalendarDate) {
+        console.warn('⚠️ Rezervacija je izvučena van granica kalendara.');
+        return;
       }
 
-      setDragging(null);
-      setDragValid(true);
-    };
+      try {
+        const newStartDateISO = `${formatDate(newStartDate)}T00:00:00.000Z`;
+        const newEndDateISO = `${formatDate(newEndDate)}T00:00:00.000Z`;
 
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup',   onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup',   onUp);
-    };
-    // bookings i dayW su namerno izostavljeni — koristimo ref-ove
-  }, [dragging, setBookings, canEdit]);
+        // Šaljemo samo jedan API zahtev na backend
+        await onBookingUpdate(dragging.bookingId, {
+          startDate: newStartDateISO,
+          endDate: newEndDateISO,
+        });
+      } catch (error: unknown) {
+        console.error('❌ Greška prilikom snimanja pomerene rezervacije:', error);
+      }
+    },
+    [dragging, dayW, days, onBookingUpdate],
+  );
 
-  return { dragging, setDragging, dragValid };
-}
+  return {
+    dragging,
+    dragValid,
+    startDrag,
+    handleGlobalMouseMove,
+    handleGlobalMouseUp,
+  };
+};

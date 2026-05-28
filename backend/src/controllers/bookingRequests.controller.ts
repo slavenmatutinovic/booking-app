@@ -52,7 +52,9 @@ import {
   sendNewRequestToAdmin,
   sendRequestReceivedToGuest,
   sendRequestRejectedToGuest,
+  sendBookingConfirmation,
 } from '../utils/emailService';
+import { appCache } from '../utils/cache';
 
 // =============================================================================
 // 📬 POST /api/bookings/requests
@@ -221,10 +223,10 @@ export const rejectRequest = async (
   next: NextFunction,
 ): Promise<void> => {
   const { id } = req.params;
-  const safeId = Array.isArray(id) ? id[0] : id;
-  logger.info({ requestId: safeId, adminId: req.user?.userId }, '❌ Odbijanje zahteva pokrenuto');
 
-  if (!safeId || typeof safeId !== 'string') {
+  logger.info({ requestId: id, adminId: req.user?.userId }, '❌ Odbijanje zahteva pokrenuto');
+
+  if (!id || typeof id !== 'string') {
     res.status(400).json({ error: 'ID zahteva je obavezan parametar.' });
     return;
   }
@@ -232,7 +234,7 @@ export const rejectRequest = async (
   try {
     // Dohvat zahteva pre update-a da bismo imali podatke za email
     const existingRequest = await prisma.reservationRequest.findUnique({
-      where: { id: safeId },
+      where: { id: id },
       include: { apartment: { select: { id: true, name: true } } },
     });
 
@@ -242,7 +244,7 @@ export const rejectRequest = async (
     }
 
     const updatedRequest = await prisma.reservationRequest.update({
-      where: { id: safeId, status: 'PENDING_APPROVAL' }, // Menjamo samo ako je bio na čekanju
+      where: { id: id, status: 'PENDING_APPROVAL' }, // Menjamo samo ako je bio na čekanju
       data: { status: 'REJECTED' },
     });
 
@@ -257,13 +259,17 @@ export const rejectRequest = async (
       startDate: existingRequest.startDate,
       endDate: existingRequest.endDate,
       apartment: existingRequest.apartment,
-    }).catch((err) => {
-      logger.error({ err, requestId: existingRequest.id }, '⚠️ Email odbijanja gostu nije poslat');
+    }).catch((err: unknown) => {
+      const errorMsg = err instanceof Error ? err.message : 'Nepoznata greška';
+      logger.error(
+        { err, requestId: existingRequest.id },
+        `⚠️ Email odbijanja gostu nije poslat: ${errorMsg}`,
+      );
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     // P2025 označava da zapis nije pronađen (ili je već odobren/odbijen)
-    if (error.code === 'P2025') {
-      res.status(404).json({ error: 'Zahtev ne postoji ili je već obrađen.' });
+    if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {
+      res.status(404).json({ error: 'Zahtev ne postoji ili je već obrađen/odbijen.' });
       return;
     }
     logger.error({ err: error }, '❌ rejectRequest — neočekivana greška');
@@ -291,3 +297,9 @@ export const getPendingRequestsCount = async (
     next(error);
   }
 };
+
+/**
+ * POST /api/bookings/requests/approve
+ * 🔑 ADMIN-ONLY: Atomska transakcija za odobrenje i kreiranje rezervacije
+ */
+// obavlja se u bookings.controler.ts jer uključuje kreiranje rezervacije i provjeru konflikta u transakciji

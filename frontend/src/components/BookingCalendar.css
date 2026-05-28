@@ -7,6 +7,10 @@
             od zauzetih dana (different cursor + boja)
   - Ostali stilovi nepromenjeni
 */
+/* 🚀 DEFANZIVNI CSS: Sprečava miš da aktivira duboke DOM elemente unutar trake */
+.booking-bar * {
+  pointer-events: none;
+}
 
 :root {
   /* [QUALITY-2] ISPRAVKA: Bilo 240px, JS konstanta je 156/160px — usklađeno */

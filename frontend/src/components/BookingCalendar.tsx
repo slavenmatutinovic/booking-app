@@ -22,13 +22,13 @@
 //           └── TimelineRow    → ćelije + barovi + modal (po apartmanu)
 // =============================================================================
 
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { addDays, eachDayOfInterval, startOfDay } from 'date-fns';
 import './BookingCalendar.css';
 import { createPortal } from 'react-dom';
 import type { AuthUser } from '../../../shared/index';
-import type { SelectionState } from '../types/ui';
-import type { FrontendBooking } from '../types/ui';
+
+import type { SelectionState, DraggingState } from '../types/ui';
 
 import { useCalendarData } from '../hooks/useCalendarData';
 import { useCalendarLayout } from '../hooks/useCalendarLayout';
@@ -90,9 +90,9 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     bookings,
     loading,
     error,
-    setBookings,
     createBooking,
-    deleteBooking,
+    deleteBooking: rawDeleteBooking,
+    updateBooking, // Uveri se da tvoj useCalendarData vraća updateBooking funkciju
     handleLogoutClick,
     bookingError,
     isCreating,
@@ -104,7 +104,7 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     days,
     dayW,
     startDate,
-    setSelection: () => setSelection(null),
+    setSelection: useCallback(() => setSelection(null), []), // Stabilna inline referenca
     isAdmin,
     canEdit,
     onLogout,
@@ -113,30 +113,54 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
   // ── Izvedeni selData (memoizovan) ──────────────────────────────────────────
   const selData = useSelectionData({ selection, days, dayW, apartments });
 
-  // ── Drag & drop ────────────────────────────────────────────────────────────
-  const { dragging, setDragging, dragValid } = useDragDrop({
-    bookings,
-    setBookings,
-    canEdit,
-    dayW,
-  });
+  const handleBookingUpdate = useCallback(
+    async (bookingId: string, payload: { startDate: string; endDate: string }) => {
+      if (updateBooking) {
+        await updateBooking(bookingId, payload);
+      }
+    },
+    [updateBooking],
+  );
 
-  // ── Hover state (za tooltip i X dugme) ────────────────────────────────────
+  const { dragging, dragValid, startDrag, handleGlobalMouseMove, handleGlobalMouseUp } =
+    useDragDrop({
+      canEdit,
+      dayW,
+      days,
+      onBookingUpdate: handleBookingUpdate,
+    });
+
+  // ── Hover state (Stabilizovan pomoću useCallback-a za potrebe memo-a) ──────
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // ── Refs ───────────────────────────────────────────────────────────────────
+  const deleteBooking = useCallback(
+    async (id: string) => {
+      await rawDeleteBooking(id);
+    },
+    [rawDeleteBooking],
+  );
 
-  const bookingsRef = useRef<FrontendBooking[]>(bookings);
+  // ── Globalni mouse i keyboard handleri — PROŠIRENO ZA DRAG & DROP ──────────
   useEffect(() => {
-    bookingsRef.current = bookings;
-  }, [bookings]);
+    const onMove = (e: MouseEvent) => {
+      // Slušamo pomeranje miša globalno samo ako je drag u toku
+      handleGlobalMouseMove(e.clientX);
+    };
 
-  // ── Globalni keyboard/mouse handleri ──────────────────────────────────────
-  useEffect(() => {
-    const onUp = () => setIsSelecting(false);
+    const onUp = (e: MouseEvent) => {
+      setIsSelecting(false);
+      // Slušamo puštanje klika globalno za završetak drag-a
+      handleGlobalMouseUp(e.clientX);
+    };
+
+    window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
-    return () => window.removeEventListener('mouseup', onUp);
-  }, []);
+
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [handleGlobalMouseMove, handleGlobalMouseUp]);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
@@ -147,6 +171,21 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     window.addEventListener('keydown', fn);
     return () => window.removeEventListener('keydown', fn);
   }, []);
+
+  // ── Kreiramo adapter koji usklađuje startDrag sa potrebama CalendarTimeline ──
+  const handleSetDragging = useCallback(
+    (state: DraggingState | null) => {
+      if (state === null) {
+        // Ako timeline šalje null (kraj ili otkazivanje), čistimo interno stanje kuke
+        // (useDragDrop unutar handleGlobalMouseUp već čisti stanje, ali ovo osigurava tipove)
+        document.documentElement.style.removeProperty('--drag-offset-x');
+      } else {
+        // Ako stigne stvarni objekat, pokrećemo tvoj startDrag iz kuke
+        startDrag(state);
+      }
+    },
+    [startDrag],
+  );
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) return <div className="loading">Učitavanje kalendara...</div>;
@@ -182,7 +221,7 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
           isSelecting={isSelecting}
           setIsSelecting={setIsSelecting}
           dragging={dragging}
-          setDragging={setDragging}
+          setDragging={handleSetDragging}
           dragValid={dragValid}
           hoveredId={hoveredId}
           setHoveredId={setHoveredId}

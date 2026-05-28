@@ -13,7 +13,7 @@
 // =============================================================================
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { differenceInCalendarDays, startOfMonth } from 'date-fns';
+import { differenceInCalendarDays, format, startOfMonth } from 'date-fns';
 
 import type { Apartment, ApiBooking } from '../../../shared/index';
 import { PALETTE } from '../../../shared/index';
@@ -21,7 +21,12 @@ import type { FrontendBooking, SelData, BookingStylesMap, Stats } from '../types
 
 import { getApartments } from '../api/apartments';
 import { getBookings } from '../api/bookings';
-import { executeCreateBooking, executeDeleteBooking, executeLogout } from './calendarActions';
+import {
+  executeCreateBooking,
+  executeDeleteBooking,
+  executeLogout,
+  executeMoveBooking,
+} from './calendarActions';
 import { remoteLogger } from '../utils/remoteLogger';
 import { parseDateStr, formatDate } from '../utils/dates';
 
@@ -91,11 +96,15 @@ export function useCalendarData({
         setLoading(true);
         setError(null);
 
-        const [aptData, rawBookings] = await Promise.all([getApartments(), getBookings()]);
+        const [aptData, bkgEnvelope] = await Promise.all([
+          getApartments(),
+          getBookings({ month: format(startDate, 'yyyy-MM') }),
+        ]);
         if (cancelled) return;
 
         // 🚀 KORAK 1: Sortiramo rezervacije hronološki prema datumu početka
         // Ovo garantuje da rezerevacije unutar svakog apartmana idu redom po vremenskoj liniji
+        const rawBookings = bkgEnvelope?.bookings || [];
         const sortedRawBookings = [...(rawBookings as ApiBooking[])].sort(
           (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
         );
@@ -230,6 +239,49 @@ export function useCalendarData({
     [bookings, isAdmin, isCreating, setSelection],
   );
 
+  const updateBooking = useCallback(
+    async (bookingId: string, payload: { startDate: string; endDate: string }) => {
+      // Pronalazimo originalnu rezervaciju u trenutnom stanju kako bismo obezbedili fallback podatke za rollback
+      const currentBooking = bookings.find((b) => b.id === bookingId);
+      if (!currentBooking) return;
+
+      setBookingError(null);
+
+      // Izdvajamo samo YYYY-MM-DD deo iz ISO stringa koji stiže iz kuke za potrebe klijentskog stanja
+      const newStartDay = payload.startDate.split('T')[0];
+      const newEndDay = payload.endDate.split('T')[0];
+
+      // Prvo radimo optimistično ažuriranje na klijentu (instant vizuelni efekat)
+      setBookings((prev) =>
+        prev.map((b) => (b.id === bookingId ? { ...b, start: newStartDay, end: newEndDay } : b)),
+      );
+
+      try {
+        // Pozivamo tvoju akciju iz calendarActions.ts koja komunicira sa API-jem
+        await executeMoveBooking(bookingId, newStartDay, newEndDay, setBookings, {
+          originalStart: currentBooking.start,
+          originalEnd: currentBooking.end,
+        });
+
+        remoteLogger({
+          level: 'info',
+          message: 'Rezervacija uspešno pomerena i sinhronizovana.',
+          errorDetails: { bookingId },
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Greška pri pomeranju rezervacije';
+        setBookingError(msg);
+        remoteLogger({
+          level: 'error',
+          message: 'Neuspešno mrežni sinhronizacija pomeranja',
+          errorDetails: { bookingId, msg },
+        });
+        throw err; // Propagiramo grešku kako bi useDragDrop kuka očistila efekte
+      }
+    },
+    [bookings], // Zavisi od trenutnog niza bookings kako bismo očitali stare datume pre izmene
+  );
+
   const deleteBooking = useCallback(
     async (id: string) => {
       if (!canEdit || isDeleting) return;
@@ -267,6 +319,7 @@ export function useCalendarData({
     setBookings,
     createBooking,
     deleteBooking,
+    updateBooking,
     handleLogoutClick,
     bookingError,
     isCreating,

@@ -43,6 +43,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { prisma } from '../config/prisma';
+import { UserRole } from '@shared/index';
 
 interface JwtPayload {
   userId: string;
@@ -58,7 +59,10 @@ declare global {
        * Populira se od strane requireAuth ili optionalAuth middleware-a.
        * undefined → middleware nije primijenjen ili token nije prisutan/validan.
        */
-      user?: JwtPayload;
+      user?: {
+        userId: string;
+        role: UserRole;
+      };
     }
   }
 }
@@ -79,6 +83,23 @@ declare global {
  * Koristiti za: POST, PATCH, DELETE rute koje zahtjevaju prijavu
  */
 
+// Pomocna funkcija za konfiguraciju bezbednih opcija kolacica
+const getCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: isProduction, // true samo u produkciji (zahteva HTTPS)
+    sameSite: isProduction ? ('strict' as const) : ('lax' as const),
+  };
+};
+
+// Definišemo precizan interfejs za strukturu tvog JWT payload-a
+interface JwtPayload {
+  userId: string;
+  role: 'ADMIN' | 'VIEWER';
+  tokenVersion: number; // Dodajemo tvoj tokenVersion u tipove
+}
+
 export const requireAuth = async (
   req: Request,
   res: Response,
@@ -92,12 +113,15 @@ export const requireAuth = async (
   }
 
   if (!token) {
-    res.status(401).json({ error: 'Nije prijavljen. Pristup odbijen.' });
+    logger.warn('🔒 requireAuth — Pokušaj pristupa bez tokena');
+    res.status(401).json({ error: 'Niste autorizovani. Token nedostaje.' });
     return;
   }
 
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+
+    const payload = jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
 
     // 🔒 REŠENJE ZA BUG-07: Provera uništenih sesija (Logout opoziv)
     // Brzi upit u bazu proverava da li je korisnik u međuvremenu kliknuo na Logout
@@ -111,9 +135,19 @@ export const requireAuth = async (
         { userId: payload.userId },
         '⚠️ Pokušaj pristupa sa opozvanim/starim JWT tokenom!',
       );
+
+      // VAŽNO: Brišemo stari nevažeći kolačić iz browsera da ga oslobodimo petlje
+      res.clearCookie('token', getCookieOptions());
+
       res.status(401).json({ error: 'Sesija je istekla ili je poništena. Prijavite se ponovo.' });
       return;
     }
+
+    // Ako je sve u redu, pakujemo podatke u req.user za sledeće kontrolere
+    req.user = {
+      userId: payload.userId,
+      role: payload.role as 'ADMIN' | 'VIEWER',
+    };
 
     // Ako je sve u redu, prosleđujemo podatke o korisniku u zahtev
     req.user = payload;

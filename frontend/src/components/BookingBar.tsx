@@ -1,14 +1,4 @@
-// =============================================================================
-// 🟦 frontend/src/components/BookingBar.tsx
-// =============================================================================
-//
-// Vizuelni bar jedne rezervacije u timeline-u.
-//
-// Izmene u odnosu na original:
-//   - Tip b je FrontendBooking (ne Booking iz starog types/index.ts)
-//   - Tooltip je podkomponenta BookingTooltip — manja odgovornost
-//   - memo() ostaje — sprečava re-render barova koji se nisu promenili
-// =============================================================================
+// frontend/src/components/BookingBar.tsx
 
 import { memo } from 'react';
 import { differenceInCalendarDays } from 'date-fns';
@@ -19,15 +9,13 @@ import { parseDateStr, fmtShort } from '../utils/dates';
 // 💬 BookingTooltip — izdvojen za preglednost
 // =============================================================================
 
-function BookingTooltip({
-  b,
-  showGuestDetails,
-  canEdit,
-}: {
+interface BookingTooltipProps {
   b: FrontendBooking;
   showGuestDetails: boolean;
   canEdit: boolean;
-}) {
+}
+
+function BookingTooltip({ b, showGuestDetails, canEdit }: BookingTooltipProps) {
   if (!showGuestDetails) {
     return (
       <div className="tooltip" role="tooltip">
@@ -39,15 +27,16 @@ function BookingTooltip({
     );
   }
 
+  // Računamo broj dana bez mutacije i na tipski bezbedan način
+  const totalDays = differenceInCalendarDays(parseDateStr(b.end), parseDateStr(b.start)) + 1;
+
   return (
     <div className="tooltip" role="tooltip">
       <div className="tooltip-title">{b.guest}</div>
       <div className="tooltip-dates">
         {fmtShort(parseDateStr(b.start))} {' → '} {fmtShort(parseDateStr(b.end))}
       </div>
-      <div className="tooltip-days">
-        {differenceInCalendarDays(parseDateStr(b.end), parseDateStr(b.start)) + 1} dana
-      </div>
+      <div className="tooltip-days">{totalDays} dana</div>
       {canEdit && (
         <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>Prevuci za pomeranje</div>
       )}
@@ -93,6 +82,7 @@ export const BookingBar = memo(
   }: BookingBarProps) => {
     if (!styleCache) return null;
 
+    // Proračun opaciteta na osnovu stanja rezervacije
     const opacity = b.isOptimistic
       ? 0.5
       : isDeleting && isHovered
@@ -103,18 +93,47 @@ export const BookingBar = memo(
             : 0.4
           : 1;
 
-    const cursor = b.isOptimistic
+    // Definišemo kursor tipski bezbedno
+    const cursor: React.CSSProperties['cursor'] = b.isOptimistic
       ? 'not-allowed'
       : canEdit
         ? isDrag
           ? 'grabbing'
           : 'grab'
         : 'default';
+    // Ako se ova traka trenutno prevlači, primenjujemo CSS varijablu u pikselima.
+    // Ako se ne prevlači, nema nikakvog pomeranja.
+    const transform = isDrag ? 'translateX(var(--drag-offset-x, 0px))' : 'none';
+
+    // Pokretanje drag-and-drop akcije na levi klik miša
+    const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!canEdit || b.isOptimistic || isDeleting) return;
+      if (e.button !== 0) return; // Samo levi klik pokreće drag
+
+      e.stopPropagation();
+
+      setDragging({
+        bookingId: b.id,
+        apartmentId: b.apartmentId,
+        startX: e.clientX,
+        originalStart: parseDateStr(b.start),
+        originalEnd: parseDateStr(b.end),
+      });
+    };
+
+    // Rukovanje desnim klikom (Context Menu) za brisanje
+    const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!canEdit || isDeleting) return;
+      e.preventDefault();
+      deleteBooking(b.id);
+    };
 
     return (
       <div
+        id={`bkg-bar-${b.id}`}
         className={[
           'booking',
+          `booking-bar ${isHovered ? 'hovered' : ''}`,
           isDrag ? 'dragging' : '',
           isDrag && !dragValid ? 'invalid' : '',
           b.isOptimistic ? 'optimistic-pulse' : '',
@@ -129,25 +148,14 @@ export const BookingBar = memo(
           opacity,
           pointerEvents: b.isOptimistic || isDeleting ? 'none' : 'auto',
           cursor,
+          transform,
+          zIndex: isDrag ? 1000 : isHovered ? 100 : 10,
+          transition: isDrag ? 'none' : 'transform 0.15s ease-out, opacity 0.2s',
         }}
-        onMouseDown={(e) => {
-          if (!canEdit || b.isOptimistic || isDeleting) return;
-          e.stopPropagation();
-          setDragging({
-            bookingId: b.id,
-            apartmentId: b.apartmentId,
-            startX: e.clientX,
-            originalStart: parseDateStr(b.start),
-            originalEnd: parseDateStr(b.end),
-          });
-        }}
+        onMouseDown={handleMouseDown}
         onMouseEnter={() => !isDeleting && setHoveredId(b.id)}
         onMouseLeave={() => setHoveredId(null)}
-        onContextMenu={(e) => {
-          if (!canEdit || isDeleting) return;
-          e.preventDefault();
-          deleteBooking(b.id);
-        }}
+        onContextMenu={handleContextMenu}
       >
         {/* Naziv / "Zauzeto" */}
         <span className="booking-title">
@@ -159,7 +167,7 @@ export const BookingBar = memo(
         {canEdit && isHovered && !isDrag && (
           <button
             className={`booking-delete${isDeleting ? ' disabled' : ''}`}
-            onMouseDown={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()} // Sprečavamo da klik na X pokrene drag
             onClick={(e) => {
               e.stopPropagation();
               deleteBooking(b.id);

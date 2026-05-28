@@ -66,7 +66,8 @@ export const getApartments = async (
     // 1. Proveri keš
     const cached = appCache.get(CACHE_KEYS.APARTMENTS);
     if (cached) {
-      res.json(cached); // ✅ VRAĆA ČIST NIZ (Usklađeno sa frontendom)
+      // UVEK VRAĆAMO ENKAPSULIRAN OBJEKAT ZAŠTITE RADI KOMPATIBILNOSTI SA FRONTENDOM
+      res.json({ apartments: cached }); // ✅ VRAĆA ČIST NIZ (Usklađeno sa frontendom)
       return;
     }
 
@@ -83,9 +84,9 @@ export const getApartments = async (
     // 3. Upis u keš na 1 sat (3600 sekundi)
 
     appCache.set(CACHE_KEYS.APARTMENTS, apartments, 3600);
-
     logger.info({ count: apartments.length }, '✅ getApartments — učitano');
-    res.json(apartments);
+
+    res.json({ apartments });
   } catch (error) {
     logger.error({ err: error }, '❌ getApartments — greška u bazi');
     console.error('Error in getApartments:', error); // Dodatni log za debagovanje

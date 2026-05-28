@@ -71,7 +71,6 @@ export const CalendarTimeline = forwardRef<HTMLDivElement, CalendarTimelineProps
       isGuest,
       deleteBooking, // ✅ Pokupljeno iz props
       isDeleting, // ✅ Pokupljeno iz props
-
       setScrollLeft,
     } = props;
 

@@ -26,6 +26,7 @@ import { sendBookingConfirmation, sendBookingCancellation } from '../utils/email
 import { createBookingSchema, updateBookingSchema } from '../validators/booking.validator';
 import { appCache } from '../utils/cache';
 import { MAX_BOOKING_DAYS } from '..//../../shared/index';
+import { generateBookingExcel } from '../utils/excelExport';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
 type ApartmentRow = { id: string };
@@ -157,6 +158,7 @@ export const createBooking = async (
     phone: string | null;
     startDate: Date;
     endDate: Date;
+    createdAt?: Date;
   };
   try {
     if (requestId) {
@@ -178,6 +180,7 @@ export const createBooking = async (
         phone: request.phone,
         startDate: request.startDate,
         endDate: request.endDate,
+        createdAt: request.createdAt, // Čuvamo originalni datum kreiranja zahteva u rezervaciji za evidenciju
       };
     } else {
       // Standardno ručno kreiranje od strane admina — pokrećemo Zod validaciju unosa
@@ -223,7 +226,7 @@ export const createBooking = async (
         }
 
         // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
-        return await tx.booking.create({
+        const newBooking = await tx.booking.create({
           data: {
             apartmentId: bookingData.apartmentId,
             guest: bookingData.guest,
@@ -232,9 +235,20 @@ export const createBooking = async (
             startDate: bookingData.startDate,
             endDate: bookingData.endDate,
             status: 'CONFIRMED',
+            createdAt: bookingData.createdAt ?? new Date(),
           },
           include: { apartment: { select: { id: true, name: true } } },
         });
+        // Bez ovoga zahtev ostaje PENDING_APPROVAL i pojavljuje se ponovo u listi zahteva
+        if (requestId) {
+          await tx.reservationRequest.update({
+            where: { id: String(requestId) },
+            data: { status: 'APPROVED' },
+          });
+          logger.info({ requestId }, '✅ ReservationRequest označen kao APPROVED');
+        }
+
+        return newBooking;
       },
       {
         // Postavljanje kraćeg timeout-a za transakciju radi performansi (opciono)
@@ -261,6 +275,13 @@ export const createBooking = async (
     sendBookingConfirmation(booking).catch((emailErr) => {
       logger.error({ err: emailErr, bookingId: booking.id }, '⚠️ Email potvrde nije poslat');
     });
+
+    // 📊 Excel backup — fire & forget, ne blokira odgovor
+    generateBookingExcel(
+      requestId
+        ? `Odobrena rezervacija (request: ${requestId})`
+        : `Kreirana rezervacija: ${booking.id}`,
+    );
   } catch (error: unknown) {
     // Obrada specifičnih grešaka koje su bačene unutar transakcije
     const failedApartmentId = req.body?.apartmentId ? String(req.body.apartmentId) : 'unknown';
@@ -405,6 +426,9 @@ export const updateBooking = async (
       '✅ Rezervacija uspešno ažurirana unutar transakcije',
     );
     res.json({ message: 'Rezervacija je uspešno ažurirana', booking: updatedBooking });
+
+    // 📊 Excel backup — fire & forget
+    generateBookingExcel(`Izmenjena rezervacija: ${safeId}`);
   } catch (error: unknown) {
     // Obrada specifičnih transakcionih grešaka
     if (error instanceof Error) {
@@ -512,6 +536,8 @@ export const deleteBooking = async (
         '⚠️ Email otkazivanja nije poslat',
       );
     });
+    // 📊 Excel backup — fire & forget
+    generateBookingExcel(`Otkazana rezervacija: ${safeId}`);
   } catch (error: unknown) {
     // Rukovanje greškama usklađeno sa Zod v4 i TypeScript unknown standardom
     if (error instanceof Error) {

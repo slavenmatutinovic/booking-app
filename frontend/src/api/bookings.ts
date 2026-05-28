@@ -1,5 +1,5 @@
 // frontend/src/api/bookings.ts
-// NOVI FAJL — CRUD za rezervacije
+//  CRUD za rezervacije
 import apiFetch from './index';
 import { remoteLogger } from '../utils/remoteLogger';
 import { ApiReservationRequest } from '../types/ui';
@@ -26,14 +26,30 @@ export interface CreateBookingPayload {
   endDate: Date;
 }
 
+// 📋 Koverat za unificiran mrežni odgovor paginacije kalendara
+export interface BookingsEnvelope {
+  bookings: BookingAPI[];
+  nextCursor: string | null;
+}
+
+// 📋 Odgovor servera nakon uspešnog odobravanja zahteva
+export interface ApproveRequestResponse {
+  message: string;
+  booking: BookingAPI;
+}
+
 // ─── GET /api/bookings ─────────────────────────────────────────────────────────
 export const getBookings = async (params?: {
   month?: string;
   apartmentId?: string;
-}): Promise<BookingAPI[]> => {
+  cursor?: string;
+  limit?: number;
+}): Promise<BookingsEnvelope> => {
   const query = new URLSearchParams();
   if (params?.month) query.set('month', params.month);
   if (params?.apartmentId) query.set('apartmentId', params.apartmentId);
+  if (params?.cursor) query.set('cursor', params.cursor);
+  if (params?.limit) query.set('limit', String(params.limit));
 
   const endpoint = `bookings${query.toString() ? '?' + query.toString() : ''}`;
   remoteLogger({ level: 'info', message: `GET /api/${endpoint}` });
@@ -50,8 +66,12 @@ export const getBookings = async (params?: {
     throw new Error(data.error || 'Greška pri učitavanju rezervacija');
   }
 
-  remoteLogger({ level: 'info', message: `Učitano rezervacija: ${data.bookings.length}` });
-  return data.bookings;
+  remoteLogger({ level: 'info', message: `Učitano rezervacija: ${data.bookings?.length || 0}` });
+
+  return {
+    bookings: data.bookings || [],
+    nextCursor: data.nextCursor || null,
+  };
 };
 
 // ─── POST /api/bookings ────────────────────────────────────────────────────────
