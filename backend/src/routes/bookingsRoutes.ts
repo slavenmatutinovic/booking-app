@@ -54,6 +54,12 @@ import {
   getPendingRequestsCount,
 } from '../controllers/bookingRequests.controller';
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/authMiddleware';
+import { validateBody } from '../middleware/validateMiddleware';
+import {
+  createBookingSchema,
+  createGuestRequestSchema,
+  updateBookingSchema,
+} from '../validators/booking.validator';
 
 // 🛡️ DECOUPLED LIMITER: Declared inside this context to break circular dependency paths
 const standaloneRequestsLimiter = rateLimit({
@@ -89,7 +95,12 @@ router.get('/', optionalAuth, getBookings);
 
 // Ova ruta je 100% javna — omogućava neulogovanim gostima da pošalju zahtev
 
-router.post('/requests', standaloneRequestsLimiter, createBookingRequest);
+router.post(
+  '/requests',
+  standaloneRequestsLimiter,
+  validateBody(createGuestRequestSchema),
+  createBookingRequest,
+);
 
 // =============================================================================
 // 🔑 ADMIN-ONLY RUTE (obavezna prijava + ADMIN rola)
@@ -103,7 +114,7 @@ router.post('/requests', standaloneRequestsLimiter, createBookingRequest);
  *
  * Body: { apartmentId, guest, startDate, endDate, email?, phone? }
  */
-router.post('/', requireAuth, requireAdmin, createBooking);
+router.post('/', requireAuth, requireAdmin, validateBody(createBookingSchema), createBooking);
 
 /**
  * PATCH /api/bookings/:id
@@ -113,7 +124,7 @@ router.post('/', requireAuth, requireAdmin, createBooking);
  *
  * Body: Parcijalni objekat — samo polja koja se mijenjaju
  */
-router.patch('/:id', requireAuth, requireAdmin, updateBooking);
+router.patch('/:id', requireAuth, requireAdmin, validateBody(updateBookingSchema), updateBooking);
 
 /**
  * DELETE /api/bookings/:id
@@ -140,7 +151,13 @@ router.get('/requests/pending', requireAuth, requireAdmin, getPendingRequests);
  * POST /api/bookings/requests/approve
  * Admin odobrava zahtev (šalje requestId u body, aktivira pametni kontroler)
  */
-router.post('/requests/approve', requireAuth, requireAdmin, createBooking);
+router.post(
+  '/requests/approve',
+  requireAuth,
+  requireAdmin,
+  validateBody(createBookingSchema),
+  createBooking,
+);
 
 /**
  * PATCH /api/bookings/requests/:id/reject

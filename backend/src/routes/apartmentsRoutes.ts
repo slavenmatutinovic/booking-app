@@ -29,6 +29,8 @@ import {
   deleteApartment,
 } from '../controllers/apartments.controller';
 import { requireAuth, requireAdmin } from '../middleware/authMiddleware';
+import { validateBody } from '../middleware/validateMiddleware';
+import { createApartmentSchema, updateApartmentSchema } from '../validators/apartment.validator';
 
 const router = Router();
 
@@ -62,14 +64,20 @@ router.get('/:id', getApartmentById);
  * Kreiranje novog apartmana u sistemu.
  * Body: { name: string, description?: string }
  */
-router.post('/', requireAuth, requireAdmin, createApartment);
+router.post('/', requireAuth, requireAdmin, validateBody(createApartmentSchema), createApartment);
 
 /**
  * PATCH /api/apartments/:id
  * Izmena naziva ili opisa apartmana.
  * Body: Parcijalni objekat — samo polja koja se mjenjaju
  */
-router.patch('/:id', requireAuth, requireAdmin, updateApartment);
+router.patch(
+  '/:id',
+  requireAuth,
+  requireAdmin,
+  validateBody(updateApartmentSchema),
+  updateApartment,
+);
 
 /**
  * DELETE /api/apartments/:id

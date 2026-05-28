@@ -25,4 +25,6 @@ export const CACHE_KEYS = {
   APARTMENTS: 'apartments:all',
   // Dinamički ključ za rezervacije po mesecu/apartmanu
   BOOKINGS: (month?: string, aptId?: string) => `bookings:${month ?? 'all'}:${aptId ?? 'all'}`,
+  // 📬  Statički ključ za listu i broj zahteva na čekanju
+  PENDING_REQUESTS: 'requests:pending:all',
 } as const;

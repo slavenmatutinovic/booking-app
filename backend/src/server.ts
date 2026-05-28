@@ -65,11 +65,34 @@ app.use(
 
 app.use(cookieParser());
 
+// Pravimo listu dozvoljenih adresa
+const allowedOrigins = [
+  'http://localhost:5173', // Lokalni razvoj (Vite podrazumevano)
+  'http://127.0.0.1:5173', // IP alternativa za lokalni razvoj
+  env.FRONTEND_URL, // Zvanični produkcijski URL
+].filter((url): url is string => Boolean(url)); // Čistimo potencijalne undefined/
+
 // 🔀 CORS konfiguracija sa dinamičkim i eksplicitnim Origin-om (Neophodno za credentials)
 app.use(
   cors({
-    origin: env.FRONTEND_URL,
-    credentials: true, // Dozvoljava browseru da šalje i prima HttpOnly kolačiće
+    origin: (origin, callback) => {
+      // Ako zahtev nema origin (npr. serverski cron poslovi, Postman ili interni testovi), dozvoljavamo pristup
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        logger.warn({ origin }, '🚫 CORS blokirao pristup sa nepoznate adrese');
+        callback(new Error('Pristup odbijen od strane CORS polise.'));
+      }
+    },
+    credentials: true, // Dozvoljava slanje i čitanje HttpOnly kolačića (JWT tokena)
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    exposedHeaders: ['set-cookie'], // Omogućava browseru da bezbedno registruje upisivanje kolačića
   }),
 );
 

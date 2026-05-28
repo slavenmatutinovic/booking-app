@@ -44,6 +44,7 @@
 import cron from 'node-cron';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
+import { appCache, CACHE_KEYS } from '../utils/cache';
 
 // =============================================================================
 // ⏰ INICIJALIZACIJA CRON ZADATKA
@@ -63,7 +64,6 @@ import { logger } from '../utils/logger';
  *   Za Hard delete, videti zakomentarisan blok ispod.
  */
 export const initCleanupCron = () => {
-
   // Provjera ispravnosti cron izraza pri pokretanju — bolje je odmah znati
   // da je izraz neispravan nego čekati sat vremena da cron "propusti" izvršavanje
   if (!cron.validate('0 * * * *')) {
@@ -107,33 +107,27 @@ export const initCleanupCron = () => {
       // logger.info(`✅ Cron završen. Obrisano ${deleted.count} isteklih zahteva.`);
 
       if (updated.count > 0) {
-        logger.info({ count: updated.count }, '✅ Cron završen — istekli zahtevi označeni kao EXPIRED');
+        appCache.del(CACHE_KEYS.PENDING_REQUESTS);
+        logger.info(
+          { count: updated.count },
+          '✅ Cron završen — istekli zahtevi označeni kao EXPIRED',
+        );
       } else {
         // Debug nivo — nema svrhe logirati svaki sat da nema ništa za čistiti
         logger.debug('✅ Cron završen — nema isteklih zahteva');
       }
-
     } catch (error: unknown) {
-
       // ─── Graceful handling: Tabela ne postoji u bazi ─────────────────────
-      //
-      // Prisma error P2021 = "Table does not exist in current database."
-      // Može se desiti u dva scenarija:
-      //
-      //   a) Server je pokrenut pre nego što je `prisma migrate deploy` izveden
-      //   b) Razvoj: developer briše bazu i restartuje server brže od migracije
-      //
-      // Rješenje: Logujemo upozorenje (ne grešku!) i preskočimo iteraciju.
-      // Server nastavlja raditi — cron će probati ponovo za sat.
-      // Bez ovog catch-a, server bi pao odmah pri prvom cron izvršavanju.
-      if (
-        (error as { code?: string })?.code === 'P2021' ||
-        (error instanceof Error && error.message.includes('does not exist'))
-      ) {
+      // Čistimo proveri tipa bez labavog 'as { code?: string }' kastovanja
+      const hasErrorCode = error && typeof error === 'object' && 'code' in error;
+      const isTableMissingError = hasErrorCode && (error as { code: string }).code === 'P2021';
+      const isMissingMessage = error instanceof Error && error.message.includes('does not exist');
+
+      if (isTableMissingError || isMissingMessage) {
         logger.warn(
           '⚠️ ReservationRequest tabela ne postoji u bazi — preskačem cron do sledeće migracije.',
         );
-        return; // Graceful exit — ne propagiramo grešku
+        return;
       }
 
       // ─── Sve ostale greške su stvarni problemi ────────────────────────────
@@ -142,10 +136,7 @@ export const initCleanupCron = () => {
       // Logujemo kao ERROR da monitoring sistem može reagovati.
       // Ne rušimo server — cron će probati ponovo za sat.
       const poruka = error instanceof Error ? error.message : 'Nepoznata greška';
-      logger.error(
-        { err: error },
-        `❌ Cron greška pri čišćenju isteklih zahteva: ${poruka}`,
-      );
+      logger.error({ err: error }, `❌ Cron greška pri čišćenju isteklih zahteva: ${poruka}`);
     }
   });
 
