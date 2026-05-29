@@ -69,10 +69,10 @@ export const useDragDrop = ({ canEdit, dayW, days, onBookingUpdate }: UseDragDro
       const newEndDate = addDays(dragging.originalEnd, daysOffset);
 
       // Granice trenutno vidljivog kalendara
-      const minCalendarDate = days[0];
-      const maxCalendarDate = days[days.length - 1];
+      const minCalendarDate = days[0].getTime();
+      const maxCalendarDate = days[days.length - 1].getTime();
 
-      if (newStartDate < minCalendarDate || newEndDate > maxCalendarDate) {
+      if (newStartDate.getTime() < minCalendarDate || newEndDate.getTime() > maxCalendarDate) {
         console.warn('⚠️ Rezervacija je izvučena van granica kalendara.');
         return;
       }

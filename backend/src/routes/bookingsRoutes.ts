@@ -39,7 +39,7 @@
 //
 // =============================================================================
 
-import { Router } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit from 'express-rate-limit';
 import {
   getBookings,
@@ -71,6 +71,23 @@ const standaloneRequestsLimiter = rateLimit({
 });
 
 const router = Router();
+
+/**
+ * 🔒 KONDICIONALNI MIDDLEWARE ZA KREIRANJE REZERVACIJE
+ * Ako zahtev sadrži 'requestId', znači da admin odobrava postojeći zahtev i Zod šema se preskače.
+ * Ako nema 'requestId', znači da admin ručno unosi rezervaciju i šema se striktno validira.
+ */
+const validateConditionalCreate = (req: Request, res: Response, next: NextFunction) => {
+  // Kastujemo req.body u Record<string, unknown> da izbegnemo labave tipove bez 'any'
+  const body = req.body as Record<string, unknown>;
+
+  if (body && body.requestId) {
+    next(); // Preskačemo Zod validaciju i idemo pravo u kontroler
+  } else {
+    // Pokrećemo standardnu validateBody validaciju za ručni unos podataka
+    validateBody(createBookingSchema)(req, res, next);
+  }
+};
 
 // =============================================================================
 // 🌍 JAVNE RUTE (bez obavezne prijave)
@@ -114,7 +131,7 @@ router.post(
  *
  * Body: { apartmentId, guest, startDate, endDate, email?, phone? }
  */
-router.post('/', requireAuth, requireAdmin, validateBody(createBookingSchema), createBooking);
+router.post('/', requireAuth, requireAdmin, validateConditionalCreate, createBooking);
 
 /**
  * PATCH /api/bookings/:id
@@ -155,7 +172,7 @@ router.post(
   '/requests/approve',
   requireAuth,
   requireAdmin,
-  validateBody(createBookingSchema),
+  validateConditionalCreate,
   createBooking,
 );
 

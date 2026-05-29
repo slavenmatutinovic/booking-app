@@ -41,12 +41,16 @@ export interface ApproveRequestResponse {
 // ─── GET /api/bookings ─────────────────────────────────────────────────────────
 export const getBookings = async (params?: {
   month?: string;
+  startMonth?: string;
+  endMonth?: string;
   apartmentId?: string;
   cursor?: string;
   limit?: number;
 }): Promise<BookingsEnvelope> => {
   const query = new URLSearchParams();
   if (params?.month) query.set('month', params.month);
+  if (params?.startMonth) query.set('startMonth', params.startMonth);
+  if (params?.endMonth) query.set('endMonth', params.endMonth);
   if (params?.apartmentId) query.set('apartmentId', params.apartmentId);
   if (params?.cursor) query.set('cursor', params.cursor);
   if (params?.limit) query.set('limit', String(params.limit));
@@ -178,17 +182,39 @@ export const deleteBooking = async (id: string): Promise<void> => {
   remoteLogger({ level: 'info', message: `Rezervacija ${id} otkazana` });
 };
 // ─── UPDATE /api/bookings/:id  ────────────────────────────────────
+export interface UpdateBookingPayload {
+  guest?: string;
+  email?: string;
+  phone?: string | null;
+  startDate?: Date | string;
+  endDate?: Date | string;
+  status?: 'CONFIRMED' | 'CANCELLED';
+}
+
+function toISOStringSafe(val: Date | string | undefined | null): string | undefined {
+  if (val === undefined || val === null) return undefined;
+  if (val instanceof Date) return val.toISOString();
+  if (typeof val === 'string') return val;
+  // Fallback: forced string conversion catches any edge case
+  return String(val);
+}
+
 export const updateBooking = async (
   id: string,
-  payload: Partial<CreateBookingPayload> & { status?: 'CONFIRMED' | 'CANCELLED' },
+  payload: UpdateBookingPayload,
 ): Promise<BookingAPI> => {
+  // Build a clean body — no Date objects can leak through spread
+  const cleanBody: Record<string, unknown> = {};
+  if (payload.guest !== undefined) cleanBody.guest = payload.guest;
+  if (payload.email !== undefined) cleanBody.email = payload.email;
+  if (payload.phone !== undefined) cleanBody.phone = payload.phone;
+  if (payload.status !== undefined) cleanBody.status = payload.status;
+  if (payload.startDate !== undefined) cleanBody.startDate = toISOStringSafe(payload.startDate);
+  if (payload.endDate !== undefined) cleanBody.endDate = toISOStringSafe(payload.endDate);
+
   const response = await apiFetch(`bookings/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      ...payload,
-      startDate: payload.startDate?.toISOString(),
-      endDate: payload.endDate?.toISOString(),
-    }),
+    body: JSON.stringify(cleanBody),
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Greška pri ažuriranju rezervacije');

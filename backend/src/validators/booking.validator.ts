@@ -2,6 +2,17 @@
 import { z } from 'zod';
 import { MAX_BOOKING_DAYS } from '../../../shared/index';
 
+// Regex koji prihvata validan ISO 8601 UTC datetime string
+// Primeri: 2026-06-01T00:00:00.000Z  ili  2026-06-01T12:30:00Z
+const isoDatetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+function isoDatetime(errorMsg: string) {
+  return z
+    .string()
+    .regex(isoDatetimeRegex, errorMsg)
+    .transform((s) => new Date(s));
+}
+
 export const createBookingSchema = z
   .object({
     apartmentId: z
@@ -25,23 +36,18 @@ export const createBookingSchema = z
       .nullable()
       .default(''),
 
-    startDate: z.iso
-      .datetime({
-        error: 'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
-      })
-      .transform((s) => new Date(s))
-      .refine(
-        (date) => {
-          const absolutePastThreshold = new Date();
-          absolutePastThreshold.setHours(absolutePastThreshold.getHours() - 12);
-          return date >= absolutePastThreshold;
-        },
-        { error: 'Početni datum ne može biti u prošlosti' },
-      ),
+    startDate: isoDatetime(
+      'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
+    ).refine(
+      (date) => {
+        const absolutePastThreshold = new Date();
+        absolutePastThreshold.setHours(absolutePastThreshold.getHours() - 12);
+        return date >= absolutePastThreshold;
+      },
+      { error: 'Početni datum ne može biti u prošlosti' },
+    ),
 
-    endDate: z.iso
-      .datetime({ error: 'endDate mora biti validan ISO 8601 string' })
-      .transform((s) => new Date(s)),
+    endDate: isoDatetime('endDate mora biti validan ISO 8601 string'),
   })
   .refine((data) => data.endDate > data.startDate, {
     error: 'Datum odlaska mora biti posle datuma dolaska',
@@ -79,19 +85,13 @@ export const updateBookingSchema = z
       .nullable()
       .optional(),
 
-    startDate: z.iso
-      .datetime({
-        error: 'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
-      })
-      .transform((s) => new Date(s))
-      .optional(),
+    startDate: isoDatetime(
+      'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
+    ).optional(),
 
-    endDate: z.iso
-      .datetime({
-        error: 'endDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
-      })
-      .transform((s) => new Date(s))
-      .optional(),
+    endDate: isoDatetime(
+      'endDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
+    ).optional(),
 
     status: z
       .enum(['CONFIRMED', 'CANCELLED'], {
@@ -153,13 +153,9 @@ export const createGuestRequestSchema = z
       .nullable()
       .transform((s) => s?.trim() || ''),
 
-    startDate: z.iso
-      .datetime({ error: 'startDate mora biti ISO 8601 string' })
-      .transform((s) => new Date(s)),
+    startDate: isoDatetime('startDate mora biti ISO 8601 string'),
 
-    endDate: z.iso
-      .datetime({ error: 'endDate mora biti ISO 8601 string' })
-      .transform((s) => new Date(s)),
+    endDate: isoDatetime('endDate mora biti ISO 8601 string'),
   })
   .refine((data) => data.endDate > data.startDate, {
     error: 'Datum odlaska mora biti posle datuma dolaska',

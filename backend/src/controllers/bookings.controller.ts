@@ -23,9 +23,9 @@ import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { sendBookingConfirmation, sendBookingCancellation } from '../utils/emailService';
-import { createBookingSchema, updateBookingSchema } from '../validators/booking.validator';
+import { createBookingSchema } from '../validators/booking.validator';
 import { appCache } from '../utils/cache';
-import { MAX_BOOKING_DAYS } from '..//../../shared/index';
+import { ApiError, MAX_BOOKING_DAYS } from '..//../../shared/index';
 import { generateBookingExcel } from '../utils/excelExport';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
@@ -185,17 +185,9 @@ export const createBooking = async (
     } else {
       // Standardno ručno kreiranje od strane admina — pokrećemo Zod validaciju unosa
 
-      const parseResult = createBookingSchema.safeParse(req.body);
-      if (!parseResult.success) {
-        const firstError = parseResult.error.issues[0]?.message ?? 'Neispravan unos';
-        logger.warn(
-          { errors: parseResult.error.issues },
-          '⚠️ createBooking — validacija neuspešna',
-        );
-        res.status(400).json({ error: firstError });
-        return;
-      }
-      bookingData = parseResult.data;
+      // 🔒 SADA JE OVDE KONAČNA POBEDA: Podaci su već 100% validirani i transformisani u Date objekte
+      // od strane našeg pametnog uslovnog middleware-a na ruti! Čitamo ih direktno iz req.body.
+      bookingData = req.body;
     }
 
     // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
@@ -314,24 +306,28 @@ export const updateBooking = async (
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
-  const { id } = req.params;
+  const rawId = req.params.id;
   logger.debug(
-    { bookingId: id, body: req.body, userId: req.user?.userId },
+    { bookingId: rawId, body: req.body, userId: req.user?.userId },
     '✏️ PATCH /api/bookings/:id',
   );
 
-  const safeId = Array.isArray(id) ? id[0] : id;
-
-  if (!safeId) {
-    res.status(400).json({ error: 'ID rezervacije je obavezan.' });
+  if (!rawId) {
+    const errorResponse: ApiError = { error: 'ID rezervacije je obavezan.' };
+    res.status(400).json(errorResponse);
     return;
   }
 
-  const parseResult = updateBookingSchema.safeParse(req.body);
-  if (!parseResult.success) {
-    res.status(400).json({ error: parseResult.error.issues[0]?.message ?? 'Neispravan unos' });
-    return;
-  }
+  const id: string = Array.isArray(rawId) ? String(rawId[0]) : String(rawId);
+
+  const { guest, email, phone, startDate, endDate, status } = req.body as {
+    guest?: string;
+    email?: string;
+    phone?: string | null;
+    startDate?: Date; // Već transformisano u Date objekat!
+    endDate?: Date; // Već transformisano u Date objekat!
+    status?: 'CONFIRMED' | 'CANCELLED';
+  };
 
   try {
     // Pokretanje interaktivne transakcije sa sirovim zaključavanjem redova
@@ -339,7 +335,7 @@ export const updateBooking = async (
       async (tx) => {
         // 1. Provera i zaključavanje reda rezervacije koju menjamo da niko drugi ne može da je modifikuje paralelno
         const bookingsForUpdate = await tx.$queryRaw<BookingRow[]>`
-        SELECT * FROM "Booking" WHERE id = ${safeId} FOR UPDATE
+        SELECT * FROM "Booking" WHERE id = ${id} FOR UPDATE
       `;
         const existing = bookingsForUpdate[0];
 
@@ -349,9 +345,8 @@ export const updateBooking = async (
         }
 
         // Kombinujemo stare i nove datume radi validacije konflikta termina
-        // Napomena: Ako baza vraća Date objekte, koristimo ih direktno
-        const finalStartDate = parseResult.data.startDate ?? new Date(existing.startDate);
-        const finalEndDate = parseResult.data.endDate ?? new Date(existing.endDate);
+        const finalStartDate = startDate ?? new Date(existing.startDate);
+        const finalEndDate = endDate ?? new Date(existing.endDate);
         const finalApartmentId = existing.apartmentId;
 
         if (finalEndDate <= finalStartDate) {
@@ -359,17 +354,17 @@ export const updateBooking = async (
         }
 
         // 2. Ako se menjaju datumi, zaključavamo apartman i proveravamo konflikt sa drugom rezervacijom
-        if (parseResult.data.startDate || parseResult.data.endDate) {
+        if (startDate || endDate) {
           // Zaključavamo apartman radi bezbedne provere preklapanja
           await tx.$queryRaw`
-          SELECT id FROM "Apartment" WHERE id = ${finalApartmentId} FOR UPDATE
-        `;
+            SELECT id FROM "Apartment" WHERE id = ${finalApartmentId} FOR UPDATE
+          `;
 
           const conflictingBooking = await tx.booking.findFirst({
             where: {
               apartmentId: finalApartmentId,
               status: 'CONFIRMED',
-              id: { not: safeId }, // Izuzimamo samu sebe iz provere preklapanja
+              id: { not: id }, // Izuzimamo samu sebe iz provere preklapanja
               startDate: { lt: finalEndDate },
               endDate: { gt: finalStartDate },
             },
@@ -378,6 +373,7 @@ export const updateBooking = async (
           if (conflictingBooking) {
             throw new Error('BOOKING_CONFLICT');
           }
+
           // Provjera MAX_BOOKING_DAYS na kombinovanim datumima
           const diffDays = Math.ceil(
             (finalEndDate.getTime() - finalStartDate.getTime()) / (1000 * 60 * 60 * 24),
@@ -389,23 +385,22 @@ export const updateBooking = async (
 
         // 3. Mapiranje polja za unos u Prisma ažuriranje
         const updateData: Prisma.BookingUpdateInput = {};
-        if (parseResult.data.guest !== undefined) updateData.guest = parseResult.data.guest;
-        if (parseResult.data.email !== undefined) updateData.email = parseResult.data.email;
-        if (parseResult.data.phone !== undefined) updateData.phone = parseResult.data.phone ?? '';
-        if (parseResult.data.startDate !== undefined)
-          updateData.startDate = parseResult.data.startDate;
-        if (parseResult.data.endDate !== undefined) updateData.endDate = parseResult.data.endDate;
-        if (parseResult.data.status !== undefined) updateData.status = parseResult.data.status;
+        if (guest !== undefined) updateData.guest = guest;
+        if (email !== undefined) updateData.email = email;
+        if (phone !== undefined) updateData.phone = phone ?? '';
+        if (startDate !== undefined) updateData.startDate = startDate;
+        if (endDate !== undefined) updateData.endDate = endDate;
+        if (status !== undefined) updateData.status = status;
 
         // 4. Izvršavanje ažuriranja u bazi unutar transakcije
         return await tx.booking.update({
-          where: { id: safeId },
+          where: { id },
           data: updateData,
           include: { apartment: { select: { id: true, name: true } } },
         });
       },
       {
-        timeout: 5000, // Sigurnosni timeout od 5 sekundi
+        timeout: 5000,
       },
     );
 
@@ -428,7 +423,7 @@ export const updateBooking = async (
     res.json({ message: 'Rezervacija je uspešno ažurirana', booking: updatedBooking });
 
     // 📊 Excel backup — fire & forget
-    generateBookingExcel(`Izmenjena rezervacija: ${safeId}`);
+    generateBookingExcel(`Izmenjena rezervacija: ${id}`);
   } catch (error: unknown) {
     // Obrada specifičnih transakcionih grešaka
     if (error instanceof Error) {

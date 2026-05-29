@@ -25,6 +25,7 @@ import {
   deleteBooking as apiDelete,
   createBookingRequest,
   createBooking,
+  type UpdateBookingPayload,
 } from '../api/bookings';
 
 // =============================================================================
@@ -162,11 +163,24 @@ export const executeMoveBooking = async (
   setBookings: React.Dispatch<React.SetStateAction<FrontendBooking[]>>,
   fallback: MoveBookingFallback,
 ): Promise<void> => {
+  // Izvlačimo YYYY-MM-DD deo i sklapamo čiste ISO stringove za backend
+  const dateRegex = /(\d{4}-\d{2}-\d{2})/;
+  const matchStart = String(newStart).match(dateRegex);
+  const matchEnd = String(newEnd).match(dateRegex);
+
+  const cleanStart = matchStart ? matchStart[1] : String(newStart).slice(0, 10);
+  const cleanEnd = matchEnd ? matchEnd[1] : String(newEnd).slice(0, 10);
+
+  const isoStartString = `${cleanStart}T00:00:00.000Z`;
+  const isoEndString = `${cleanEnd}T00:00:00.000Z`;
+
   try {
-    await apiUpdate(bookingId, {
-      startDate: new Date(`${newStart}T00:00:00.000Z`),
-      endDate: new Date(`${newEnd}T00:00:00.000Z`),
-    });
+    const payload: UpdateBookingPayload = {
+      startDate: isoStartString,
+      endDate: isoEndString,
+    };
+    // Šaljemo ISO stringove direktno u API — bez Date objekata, bez timezone problema
+    await apiUpdate(bookingId, payload);
   } catch (err) {
     setBookings((prev) =>
       prev.map((b) =>
@@ -174,6 +188,7 @@ export const executeMoveBooking = async (
       ),
     );
     alert(err instanceof Error ? err.message : 'Greška pri pomeranju rezervacije');
+    throw err;
   }
 };
 

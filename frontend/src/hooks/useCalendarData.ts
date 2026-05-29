@@ -13,7 +13,7 @@
 // =============================================================================
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { differenceInCalendarDays, format, startOfMonth } from 'date-fns';
+import { addDays, differenceInCalendarDays, format, startOfMonth } from 'date-fns';
 
 import type { Apartment, ApiBooking } from '../../../shared/index';
 import { PALETTE } from '../../../shared/index';
@@ -48,7 +48,17 @@ function calcBookingStyle(
   if (cs > last || ce < first) return null;
   const startIdx = differenceInCalendarDays(cs, first);
   const span = differenceInCalendarDays(ce, cs) + 1;
-  return { left: startIdx * dayW, width: span * dayW };
+
+  // 🔒 VIZUELNO HOTELSKO PRAVILO (Pomeranje za pola ćelije)
+  // Širina jedne ćelije je npr. 40px. Polovina je 20px.
+  const halfCell = dayW / 2;
+
+  // Traka vizuelno ne kreće od same ivice dana, već se pomera udesno za pola dana (Check-in od 14h)
+  const leftPosition = startIdx * dayW + halfCell;
+
+  // Širina trake se smanjuje za širinu jednog celog dana (jer prva i poslednja ćelija dele po polovinu)
+  const visualWidth = span * dayW - dayW;
+  return { left: leftPosition, width: visualWidth };
 }
 
 // =============================================================================
@@ -96,9 +106,17 @@ export function useCalendarData({
         setLoading(true);
         setError(null);
 
+        // 🔒 REŠENJE: Računamo tačan opseg vidljivih meseci na ekranu
+        // Iz niza 'days' uzimamo prvi i poslednji dan koji admin vidi na kalendaru
+        const firstVisibleDay = startDate;
+        const lastVisibleDay = addDays(startDate, 35); // Širi safe prozor koji hvata maj i jun
+
+        const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
+        const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
+
         const [aptData, bkgEnvelope] = await Promise.all([
           getApartments(),
-          getBookings({ month: format(startDate, 'yyyy-MM') }),
+          getBookings({ startMonth: startMonthStr, endMonth: endMonthStr }),
         ]);
         if (cancelled) return;
 
@@ -146,7 +164,7 @@ export function useCalendarData({
     return () => {
       cancelled = true;
     };
-  }, [startDate]);
+  }, [startDate, dayW]);
 
   // ── Memoizovane kalkulacije ────────────────────────────────────────────────
 
@@ -258,7 +276,7 @@ export function useCalendarData({
 
       try {
         // Pozivamo tvoju akciju iz calendarActions.ts koja komunicira sa API-jem
-        await executeMoveBooking(bookingId, newStartDay, newEndDay, setBookings, {
+        await executeMoveBooking(bookingId, payload.startDate, payload.endDate, setBookings, {
           originalStart: currentBooking.start,
           originalEnd: currentBooking.end,
         });
