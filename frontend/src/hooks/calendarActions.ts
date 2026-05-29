@@ -44,7 +44,7 @@ export function bookingsConflict(
     ae = parseDateStr(a.end);
   const bs = parseDateStr(b.start),
     be = parseDateStr(b.end);
-  return as <= be && ae >= bs;
+  return as < be && ae > bs;
 }
 
 // =============================================================================
@@ -106,12 +106,23 @@ export const executeCreateBooking = async ({
   setSelection(null);
 
   try {
+    // 🔒 REŠENJE: Koristimo formatDate da izvučemo čist "YYYY-MM-DD" string
+    // i ručno mu lepimo fiksnu UTC ponoć. Vremenska zona više ne može da pomeri datum unazad!
+    const finalStartDateStr = `${formatDate(selData.startDate)}T00:00:00.000Z`;
+    const finalEndDateStr = `${formatDate(selData.endDate)}T00:00:00.000Z`;
+
+    const safeStartDate = new Date(finalStartDateStr);
+    const safeEndDate = new Date(finalEndDateStr);
+
+    safeStartDate.toISOString = () => finalStartDateStr;
+    safeEndDate.toISOString = () => finalEndDateStr;
+
     if (isAdmin) {
       const created = await createBooking({
         apartmentId: selData.aptId,
         guest: guestName.trim(),
-        startDate: selData.startDate,
-        endDate: selData.endDate,
+        startDate: safeStartDate,
+        endDate: safeEndDate,
         email: email.trim(),
         phone: phone.trim() || undefined,
       });
@@ -125,8 +136,8 @@ export const executeCreateBooking = async ({
       await createBookingRequest({
         apartmentId: selData.aptId,
         guest: guestName.trim(),
-        startDate: selData.startDate,
-        endDate: selData.endDate,
+        startDate: safeStartDate,
+        endDate: safeEndDate,
         email: email.trim(),
         phone: phone.trim() || undefined,
       });

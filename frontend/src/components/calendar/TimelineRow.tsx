@@ -54,7 +54,7 @@ export function TimelineRow({
   apt,
   days,
   dayW,
-  occupiedSet,
+
   bookings,
   bookingStyles,
   selection,
@@ -73,9 +73,19 @@ export function TimelineRow({
 }: TimelineRowProps) {
   const today = startOfDay(new Date());
 
-  const isOccupied = useCallback(
-    (date: Date) => occupiedSet.has(`${apt.id}:${formatDate(date)}`),
-    [occupiedSet, apt.id],
+  // 1. Provera da li je dan ČVRSTO zauzet (sredina tuđeg boravka)
+  const isSolidOccupied = useCallback(
+    (date: Date) => {
+      const dateStr = formatDate(date);
+
+      // Prolazimo kroz sve rezervacije za ovaj konkretan apartman
+      return bookings.some((b) => {
+        // Gost provodi noć u sobi ako je dan između starta i kraja,
+        // ali ako je dan TAČNO b.end, onda gost izlazi i dan je SLOBODAN za novi Check-in!
+        return dateStr >= b.start && dateStr < b.end; // 🔒 Ključ: strogo manje od b.end
+      });
+    },
+    [bookings],
   );
 
   const isPastDate = (date: Date) => date < today;
@@ -88,11 +98,11 @@ export function TimelineRow({
       const lo = Math.min(i0, i1);
       const hi = Math.max(i0, i1);
       for (let i = lo; i <= hi; i++) {
-        if (!days[i] || isOccupied(days[i])) return false;
+        if (!days[i] || isSolidOccupied(days[i])) return false;
       }
       return true;
     },
-    [days, isOccupied],
+    [days, isSolidOccupied],
   );
 
   // Bezbedno čitanje selekcije za vizuelni overlay plavog pravougaonika
@@ -113,10 +123,10 @@ export function TimelineRow({
       {/* ── Ćelije ────────────────────────────────────────────────────── */}
       <div className="row-cells">
         {days.map((day, i) => {
-          const isOcc = isOccupied(day);
+          const isSolidOcc = isSolidOccupied(day);
           const isPast = isPastDate(day);
           const isT = dateIsToday(day);
-          const blocked = isOcc || isPast;
+          const blocked = isSolidOcc || isPast;
 
           return (
             <div
@@ -125,7 +135,7 @@ export function TimelineRow({
                 'cell',
                 blocked ? 'occupied' : 'free',
                 isT ? 'today' : '',
-                isPast && !isOcc ? 'past' : '',
+                isPast && !isSolidOcc ? 'past' : '',
               ]
                 .filter(Boolean)
                 .join(' ')}
@@ -137,6 +147,8 @@ export function TimelineRow({
               onMouseEnter={() => {
                 if (!isSelecting || !selection) return;
                 if (selection.apartmentId !== apt.id) return;
+
+                // Dozvoljavamo selekciju u oba smera (unazad i unapred)
                 if (canSelect(selection.startIndex, i)) {
                   setSelection((s) => (s ? { ...s, endIndex: i } : s));
                 }

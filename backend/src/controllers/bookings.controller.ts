@@ -44,7 +44,7 @@ export const getBookings = async (
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
-  const { month, apartmentId, limit = '200', cursor } = req.query;
+  const { month, startMonth, endMonth, apartmentId, limit = '200', cursor } = req.query;
   logger.debug({ query: req.query, userId: req.user?.userId }, '📋 GET /api/bookings');
 
   const where: Prisma.BookingWhereInput = { status: 'CONFIRMED' };
@@ -53,16 +53,32 @@ export const getBookings = async (
     where.apartmentId = String(apartmentId);
   }
 
-  if (month) {
+  // 🔒 HOTELSKE SMENE OPSEGA: Ako klijent šalje opseg meseci (npr. maj i jun)
+  if (startMonth && endMonth) {
+    const [sYear, sMon] = String(startMonth).split('-').map(Number);
+    const [eYear, eMon] = String(endMonth).split('-').map(Number);
+
+    if (sYear && sMon && eYear && eMon) {
+      const startRange = new Date(sYear, sMon - 1, 1, 0, 0, 0);
+      const endRange = new Date(eYear, eMon, 0, 23, 59, 59);
+
+      // Koristimo stroge hotelske operatore (lt i gt) da se datumi smena ne sudaraju!
+      where.startDate = { lt: endRange };
+      where.endDate = { gt: startRange };
+    }
+  }
+  // Fallback na stari jednokanalni mesec ako startMonth/endMonth ne stignu
+  else if (month) {
     const [year, mon] = String(month).split('-').map(Number);
     if (!year || !mon || mon < 1 || mon > 12) {
       res.status(400).json({ error: 'Neispravan format meseca. Koristite YYYY-MM.' });
       return;
     }
-    const startOfMonth = new Date(year, mon - 1, 1);
+    const startOfMonth = new Date(year, mon - 1, 1, 0, 0, 0);
     const endOfMonth = new Date(year, mon, 0, 23, 59, 59);
-    where.startDate = { lte: endOfMonth };
-    where.endDate = { gte: startOfMonth };
+
+    where.startDate = { lt: endOfMonth };
+    where.endDate = { gt: startOfMonth };
   }
 
   try {
@@ -193,6 +209,12 @@ export const createBooking = async (
     // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
     const booking = await prisma.$transaction(
       async (tx) => {
+        const cleanStartDate = new Date(bookingData.startDate);
+        cleanStartDate.setUTCHours(0, 0, 0, 0);
+
+        const cleanEndDate = new Date(bookingData.endDate);
+        cleanEndDate.setUTCHours(0, 0, 0, 0);
+
         // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
         // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
         const apartments = await tx.$queryRaw<ApartmentRow[]>`
@@ -208,8 +230,8 @@ export const createBooking = async (
           where: {
             apartmentId: bookingData.apartmentId,
             status: 'CONFIRMED',
-            startDate: { lt: bookingData.endDate },
-            endDate: { gt: bookingData.startDate },
+            startDate: { lt: cleanEndDate }, // Ključni hotelski operator: startDate mora biti strogo manje od endDate novog zahteva
+            endDate: { gt: cleanStartDate }, // Ključni hotelski operator: endDate mora biti strogo veći od startDate novog zahteva
           },
         });
 
@@ -224,8 +246,8 @@ export const createBooking = async (
             guest: bookingData.guest,
             email: bookingData.email,
             phone: bookingData.phone ?? '',
-            startDate: bookingData.startDate,
-            endDate: bookingData.endDate,
+            startDate: cleanStartDate,
+            endDate: cleanEndDate,
             status: 'CONFIRMED',
             createdAt: bookingData.createdAt ?? new Date(),
           },
