@@ -334,7 +334,9 @@
 }
 
 .booking.invalid {
-  outline: 2px solid #ef4444;
+  background-color: #ef4444 !important; /* Menja kompletnu boju trake u crvenu */
+  outline: 3px solid #dc2626 !important; /* Dodaje debeli tamnocrveni okvir */
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
 }
 
 .booking-title {
@@ -509,4 +511,38 @@ body:has(.invalid) {
 
 .booking.dragging {
   cursor: grabbing;
+}
+
+/* 🧱 Step 1: Make standard vertical day dividers sharper */
+.timeline-cell {
+  border-right: 1px solid rgba(0, 0, 0, 0.15) !important; /* Darker, crisper separation */
+}
+
+/* 🏢 Step 2: Highlight Weekend columns (Saturday/Sunday) so they stand out */
+.timeline-cell.weekend {
+  background-color: rgba(0, 0, 0, 0.02); /* Subtle tint behind weekend nights */
+  border-right: 1px dashed rgba(0, 0, 0, 0.25) !important; /* Dashed separator line */
+}
+
+/* 📍 Step 3: Draw a high-contrast line for Today's date */
+.timeline-cell.today {
+  position: relative;
+  background-color: rgba(59, 130, 246, 0.04); /* Soft blue glow tint */
+}
+
+.timeline-cell.today::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #3b82f6; /* Bold solid blue indicator bar */
+  z-index: 5;
+}
+
+/* 🧭 Step 4: Ensure grid alignment guide lines sit underneath dragging bars */
+.timeline-row {
+  position: relative;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }

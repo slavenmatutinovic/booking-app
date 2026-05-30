@@ -1,103 +1,170 @@
 // frontend/src/hooks/useDragDrop.ts
-
-import { useState, useCallback } from 'react';
-import { addDays } from 'date-fns';
-import type { DraggingState } from '../types/ui';
-import { formatDate } from '../utils/dates';
+import { useState, useCallback, useEffect, useRef } from 'react';
+import type { DraggingState, FrontendBooking } from '../types/ui';
 
 interface UseDragDropProps {
   canEdit: boolean;
   dayW: number;
   days: Date[];
+  bookings: FrontendBooking[];
   onBookingUpdate: (
     bookingId: string,
     payload: { startDate: string; endDate: string },
   ) => Promise<void>;
 }
 
-export const useDragDrop = ({ canEdit, dayW, days, onBookingUpdate }: UseDragDropProps) => {
-  // Držimo se tvog originalnog DraggingState tipa iz ui.ts
-  const [dragging, setDragging] = useState<DraggingState | null>(null);
-  const [dragValid] = useState<boolean>(true);
+// 🟢 Helper: Safely converts any input into a clean "YYYY-MM-DD" text segment without timezone shifts
+function toDashString(dateInput: string | Date): string {
+  if (typeof dateInput === 'string') {
+    // If it's already an ISO string format, slice out the date part directly
+    if (dateInput.includes('T')) {
+      return dateInput.split('T')[0];
+    }
+    return dateInput;
+  }
 
-  // Pokretanje drag procesa na klik miša
+  const year = dateInput.getFullYear();
+  const month = String(dateInput.getMonth() + 1).padStart(2, '0');
+  const day = String(dateInput.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// 🟢 Helper: Shifts a clean "YYYY-MM-DD" text string up or down using strict UTC boundaries
+function shiftDateString(dateStr: string, daysToShift: number): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  // Instantiate using UTC values to isolate the object from browser clock variations
+  const utcDate = new Date(Date.UTC(year, month - 1, day));
+  utcDate.setUTCDate(utcDate.getUTCDate() + daysToShift);
+
+  const rYear = utcDate.getUTCFullYear();
+  const rMonth = String(utcDate.getUTCMonth() + 1).padStart(2, '0');
+  const rDay = String(utcDate.getUTCDate()).padStart(2, '0');
+  return `${rYear}-${rMonth}-${rDay}`;
+}
+
+export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDragDropProps) => {
+  const [dragging, setDragging] = useState<DraggingState | null>(null);
+
+  const [dragStatus, setDragStatus] = useState<{ valid: boolean; shift: number }>({
+    valid: true,
+    shift: 0,
+  });
+
+  const stateRef = useRef({ dragging, dragStatus, bookings });
+
+  useEffect(() => {
+    stateRef.current = { dragging, dragStatus, bookings };
+  }, [dragging, dragStatus, bookings]);
+
   const startDrag = useCallback(
     (state: DraggingState) => {
       if (!canEdit) return;
       setDragging(state);
-
-      // Postavljamo početni CSS offset na 0 piksela na HTML koren aplikacije
-      document.documentElement.style.setProperty('--drag-offset-x', '0px');
+      setDragStatus({ valid: true, shift: 0 });
     },
     [canEdit],
   );
 
-  // Globalni handler za pomeranje miša - SADA KORISTI PIKSELE ZA MAKSIMALNU GLATKOĆU
-  const handleGlobalMouseMove = useCallback(
-    (clientX: number) => {
-      if (!dragging) return;
+  useEffect(() => {
+    const handleGlobalMouseMove = (e: MouseEvent) => {
+      const { dragging: curDrag, dragStatus: curStatus, bookings: curBookings } = stateRef.current;
+      if (!curDrag) return;
 
-      // Računamo tačan pomeraj miša u pikselima
-      const deltaX = clientX - dragging.startX;
+      const deltaX = e.clientX - curDrag.startX;
+      const daysShifted = Math.round(deltaX / dayW);
 
-      // Direktno menjamo CSS varijablu na ekranu.
-      // Browser ovo pomera trenutno (60+ FPS) jer preskače skupi React re-render!
       document.documentElement.style.setProperty('--drag-offset-x', `${deltaX}px`);
-    },
-    [dragging],
-  );
 
-  // Globalni handler za puštanje miša (kraj drag-and-drop procesa)
-  const handleGlobalMouseUp = useCallback(
-    async (clientX: number) => {
-      if (!dragging) return;
+      // 1. Get clean base strings from the current dragged object
+      const originalStartStr = toDashString(curDrag.originalStart);
+      const originalEndStr = toDashString(curDrag.originalEnd);
 
-      const deltaX = clientX - dragging.startX;
+      // 2. Add the shift offset using safe string math
+      const newStartStr = shiftDateString(originalStartStr, daysShifted);
+      const newEndStr = shiftDateString(originalEndStr, daysShifted);
 
-      // Na osnovu ukupnog pomeraja u pikselima, računamo konačan offset u danima
-      const daysOffset = Math.round(deltaX / dayW);
+      let isValid = true;
 
-      // Čistimo CSS varijablu sa ekrana odmah po završetku
-      document.documentElement.style.removeProperty('--drag-offset-x');
-      setDragging(null);
+      // 3. Scan active booking items for overlaps
+      for (const b of curBookings) {
+        if (b.apartmentId !== curDrag.apartmentId) continue;
+        if (b.id === curDrag.bookingId) continue;
 
-      // Ako se traka na kraju nije pomerila za ceo dan, prekidamo i ne trošimo API
-      if (daysOffset === 0) return;
+        const bStartStr = toDashString(b.start);
+        const bEndStr = toDashString(b.end);
 
-      // Računamo nove datume dodavanjem offseta na originalne Date objekte
-      const newStartDate = addDays(dragging.originalStart, daysOffset);
-      const newEndDate = addDays(dragging.originalEnd, daysOffset);
+        // Standard range check formula using clean string comparisons
+        const hasOverlap = newStartStr < bEndStr && newEndStr > bStartStr;
 
-      // Granice trenutno vidljivog kalendara
-      const minCalendarDate = days[0].getTime();
-      const maxCalendarDate = days[days.length - 1].getTime();
-
-      if (newStartDate.getTime() < minCalendarDate || newEndDate.getTime() > maxCalendarDate) {
-        console.warn('⚠️ Rezervacija je izvučena van granica kalendara.');
-        return;
+        if (hasOverlap) {
+          isValid = false;
+          break;
+        }
       }
 
-      try {
-        const newStartDateISO = `${formatDate(newStartDate)}T00:00:00.000Z`;
-        const newEndDateISO = `${formatDate(newEndDate)}T00:00:00.000Z`;
+      console.log('[DRAG DIAGNOSTICS - OVERLAP CHECK]', {
+        daysShifted,
+        calculatedValid: isValid,
+        targetStart: newStartStr,
+        targetEnd: newEndStr,
+      });
 
-        // Šaljemo samo jedan API zahtev na backend
-        await onBookingUpdate(dragging.bookingId, {
-          startDate: newStartDateISO,
-          endDate: newEndDateISO,
+      if (daysShifted !== curStatus.shift || isValid !== curStatus.valid) {
+        setDragStatus({
+          shift: daysShifted,
+          valid: isValid,
         });
-      } catch (error: unknown) {
-        console.error('❌ Greška prilikom snimanja pomerene rezervacije:', error);
       }
-    },
-    [dragging, dayW, days, onBookingUpdate],
-  );
+    };
+
+    const handleGlobalMouseUp = async (e: MouseEvent) => {
+      const { dragging: curDrag, dragStatus: curStatus } = stateRef.current;
+      if (!curDrag) return;
+
+      const deltaX = e.clientX - curDrag.startX;
+      const daysShifted = Math.round(deltaX / dayW);
+
+      document.documentElement.style.removeProperty('--drag-offset-x');
+
+      setDragging(null);
+      setDragStatus({ valid: true, shift: 0 });
+
+      // Save changes to the database only if the placement is valid and has shifted
+      if (curStatus.valid && daysShifted !== 0) {
+        const originalStartStr = toDashString(curDrag.originalStart);
+        const originalEndStr = toDashString(curDrag.originalEnd);
+
+        const finalStartStr = shiftDateString(originalStartStr, daysShifted);
+        const finalEndStr = shiftDateString(originalEndStr, daysShifted);
+
+        // Build clean ISO string payloads with the time forced to midnight UTC
+        const payload = {
+          startDate: `${finalStartStr}T00:00:00.000Z`,
+          endDate: `${finalEndStr}T00:00:00.000Z`,
+        };
+
+        try {
+          await onBookingUpdate(curDrag.bookingId, payload);
+        } catch (err) {
+          console.error('Greška tokom drag-and-drop snimanja:', err);
+        }
+      }
+    };
+
+    if (dragging) {
+      window.addEventListener('mousemove', handleGlobalMouseMove);
+      window.addEventListener('mouseup', handleGlobalMouseUp);
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [dragging, dayW, onBookingUpdate]);
 
   return {
     dragging,
-    dragValid,
+    dragValid: dragStatus.valid,
     startDrag,
-    handleGlobalMouseMove,
-    handleGlobalMouseUp,
   };
 };

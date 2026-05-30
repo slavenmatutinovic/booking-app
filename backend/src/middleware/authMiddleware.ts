@@ -93,13 +93,6 @@ const getCookieOptions = () => {
   };
 };
 
-// Definišemo precizan interfejs za strukturu tvog JWT payload-a
-interface JwtPayload {
-  userId: string;
-  role: 'ADMIN' | 'VIEWER';
-  tokenVersion: number; // Dodajemo tvoj tokenVersion u tipove
-}
-
 export const requireAuth = async (
   req: Request,
   res: Response,
@@ -149,8 +142,6 @@ export const requireAuth = async (
       role: payload.role as 'ADMIN' | 'VIEWER',
     };
 
-    // Ako je sve u redu, prosleđujemo podatke o korisniku u zahtev
-    req.user = payload;
     next();
   } catch (error) {
     logger.warn({ err: error }, '⚠️ Pokušaj provere neispravnog tokena');

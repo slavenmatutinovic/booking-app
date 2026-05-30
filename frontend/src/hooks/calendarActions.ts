@@ -14,7 +14,7 @@
 //
 // Testabilnost: Nema React importa — lako se testira bez DOM-a.
 // =============================================================================
-
+import type { Dispatch, SetStateAction } from 'react';
 import type { FrontendBooking } from '../types/ui';
 import type { SelData } from '../types/ui';
 import { PALETTE } from '../../../shared/index';
@@ -57,7 +57,7 @@ interface CreateBookingArgs {
   phone: string;
   selData: SelData | null;
   bookings: FrontendBooking[];
-  setBookings: React.Dispatch<React.SetStateAction<FrontendBooking[]>>;
+  setBookings: Dispatch<SetStateAction<FrontendBooking[]>>;
   setSelection: (v: null) => void;
 
   isAdmin: boolean;
@@ -171,7 +171,7 @@ export const executeMoveBooking = async (
   bookingId: string,
   newStart: string,
   newEnd: string,
-  setBookings: React.Dispatch<React.SetStateAction<FrontendBooking[]>>,
+  setBookings: Dispatch<SetStateAction<FrontendBooking[]>>,
   fallback: MoveBookingFallback,
 ): Promise<void> => {
   // Izvlačimo YYYY-MM-DD deo i sklapamo čiste ISO stringove za backend
@@ -209,7 +209,7 @@ export const executeMoveBooking = async (
 
 export const executeDeleteBooking = async (
   id: string,
-  setBookings: React.Dispatch<React.SetStateAction<FrontendBooking[]>>,
+  setBookings: Dispatch<SetStateAction<FrontendBooking[]>>,
 ): Promise<void> => {
   let backup: FrontendBooking | undefined;
 

@@ -108,8 +108,8 @@ export function useCalendarData({
 
         // 🔒 REŠENJE: Računamo tačan opseg vidljivih meseci na ekranu
         // Iz niza 'days' uzimamo prvi i poslednji dan koji admin vidi na kalendaru
-        const firstVisibleDay = startDate;
-        const lastVisibleDay = addDays(startDate, 35); // Širi safe prozor koji hvata maj i jun
+        const firstVisibleDay = days[0] || startDate;
+        const lastVisibleDay = days[days.length - 1] || addDays(startDate, 35);
 
         const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
         const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
@@ -164,7 +164,7 @@ export function useCalendarData({
     return () => {
       cancelled = true;
     };
-  }, [startDate, dayW]);
+  }, [startDate, days]);
 
   // ── Memoizovane kalkulacije ────────────────────────────────────────────────
 

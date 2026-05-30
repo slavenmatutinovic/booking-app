@@ -25,7 +25,7 @@ import { Prisma } from '@prisma/client';
 import { sendBookingConfirmation, sendBookingCancellation } from '../utils/emailService';
 import { createBookingSchema } from '../validators/booking.validator';
 import { appCache } from '../utils/cache';
-import { ApiError, MAX_BOOKING_DAYS } from '..//../../shared/index';
+import { ApiError, MAX_BOOKING_DAYS } from '../../../shared/index';
 import { generateBookingExcel } from '../utils/excelExport';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────

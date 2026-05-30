@@ -122,13 +122,13 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     [updateBooking],
   );
 
-  const { dragging, dragValid, startDrag, handleGlobalMouseMove, handleGlobalMouseUp } =
-    useDragDrop({
-      canEdit,
-      dayW,
-      days,
-      onBookingUpdate: handleBookingUpdate,
-    });
+  const { dragging, dragValid, startDrag } = useDragDrop({
+    canEdit,
+    dayW,
+    days,
+    bookings,
+    onBookingUpdate: handleBookingUpdate,
+  });
 
   // ── Hover state (Stabilizovan pomoću useCallback-a za potrebe memo-a) ──────
   const [hoveredId, setHoveredId] = useState<string | null>(null);
@@ -139,28 +139,6 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     },
     [rawDeleteBooking],
   );
-
-  // ── Globalni mouse i keyboard handleri — PROŠIRENO ZA DRAG & DROP ──────────
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      // Slušamo pomeranje miša globalno samo ako je drag u toku
-      handleGlobalMouseMove(e.clientX);
-    };
-
-    const onUp = (e: MouseEvent) => {
-      setIsSelecting(false);
-      // Slušamo puštanje klika globalno za završetak drag-a
-      handleGlobalMouseUp(e.clientX);
-    };
-
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [handleGlobalMouseMove, handleGlobalMouseUp]);
 
   useEffect(() => {
     const fn = (e: KeyboardEvent) => {
