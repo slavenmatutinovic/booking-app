@@ -21,16 +21,12 @@ interface BookingModalProps {
   ) => void | Promise<void>;
   apartmentsCount: number;
   aptIdx: number;
-  daysCount: number;
   dayW: number;
-  rowH: number;
   modalW: number;
   isCreating: boolean;
-  isDeleting: boolean;
   isAdmin: boolean;
   currentUser: AuthUser | null;
   bookingError: string | null;
-  scrollLeft: number;
 }
 
 export const BookingModal: React.FC<BookingModalProps> = ({
@@ -42,7 +38,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   isAdmin,
   currentUser,
   bookingError,
-
   isCreating,
 }) => {
   // ✅ Lokalizovana stanja forme

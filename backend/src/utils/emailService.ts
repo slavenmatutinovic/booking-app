@@ -46,6 +46,21 @@ export interface RequestEmailData {
   };
 }
 
+/**
+ * Centralized HTML Entity Escaper
+ * Converts high-risk control markup characters into literal text strings
+ */
+const escapeHtml = (unsafeString: unknown): string => {
+  if (unsafeString === null || unsafeString === undefined) return '';
+
+  return String(unsafeString)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+};
+
 // =============================================================================
 // 🔌 INICIJALIZACIJA TRANSPORTA
 // =============================================================================
@@ -127,7 +142,7 @@ function buildConfirmationEmailHtml(data: BookingEmailData): string {
           <tr>
             <td style="padding: 40px;">
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
-                Poštovani/a <strong>${data.guest}</strong>,
+                Poštovani/a <strong>${escapeHtml(data.guest)}</strong>,
               </p>
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
                 Vaša rezervacija je uspešno potvrđena. U nastavku se nalaze detalji:
@@ -142,11 +157,11 @@ function buildConfirmationEmailHtml(data: BookingEmailData): string {
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Dolazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${startStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(startStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Odlazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${endStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(endStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">🌙 Broj noći:</td>
@@ -156,7 +171,7 @@ function buildConfirmationEmailHtml(data: BookingEmailData): string {
                         data.phone
                           ? `<tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📞 Telefon:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${data.phone}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(data.phone)}</td>
                       </tr>`
                           : ''
                       }
@@ -215,7 +230,7 @@ function buildCancellationEmailHtml(data: BookingEmailData): string {
           <tr>
             <td style="padding: 40px;">
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
-                Poštovani/a <strong>${data.guest}</strong>,
+                Poštovani/a <strong>${escapeHtml(data.guest)}</strong>,
               </p>
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
                 Vaša rezervacija je otkazana. Detalji:
@@ -226,15 +241,15 @@ function buildCancellationEmailHtml(data: BookingEmailData): string {
                     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px; width:40%;">🏠 Apartman:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${data.apartment.name}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(data.apartment.name)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Dolazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${startStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(startStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Odlazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${endStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(endStr)}</td>
                       </tr>
                     </table>
                   </td>
@@ -293,7 +308,7 @@ function buildRequestReceivedHtml(data: RequestEmailData): string {
           <tr>
             <td style="padding: 40px;">
               <p style="margin:0 0 16px; color:#374151; font-size:16px; line-height:1.6;">
-                Poštovani/a <strong>${data.guest}</strong>,
+                Poštovani/a <strong>${escapeHtml(data.guest)}</strong>,
               </p>
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
                 Vaš zahtev za rezervaciju je uspešno primljen i prosleđen adminu na odobrenje. Obaveštićemo vas čim bude obrađen.
@@ -304,19 +319,19 @@ function buildRequestReceivedHtml(data: RequestEmailData): string {
                     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px; width:40%;">🏠 Apartman:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${data.apartment.name}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(data.apartment.name)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Dolazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${startStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(startStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Odlazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${endStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(endStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">🌙 Broj noći:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${nights}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(nights)}</td>
                       </tr>
                     </table>
                   </td>
@@ -374,7 +389,7 @@ function buildRequestRejectedHtml(data: RequestEmailData): string {
           <tr>
             <td style="padding: 40px;">
               <p style="margin:0 0 16px; color:#374151; font-size:16px; line-height:1.6;">
-                Poštovani/a <strong>${data.guest}</strong>,
+                Poštovani/a <strong>${escapeHtml(data.guest)}</strong>,
               </p>
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
                 Nažalost, vaš zahtev za rezervaciju nije odobren. Razlog može biti zauzet termin ili drugi tehnički razlozi.
@@ -385,15 +400,15 @@ function buildRequestRejectedHtml(data: RequestEmailData): string {
                     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px; width:40%;">🏠 Apartman:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${data.apartment.name}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(data.apartment.name)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Dolazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${startStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(startStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Odlazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${endStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(endStr)}</td>
                       </tr>
                     </table>
                   </td>
@@ -452,7 +467,7 @@ function buildModificationEmailHtml(data: BookingEmailData): string {
           <tr>
             <td style="padding: 40px;">
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
-                Poštovani/a <strong>${data.guest}</strong>,
+                Poštovani/a <strong>${escapeHtml(data.guest)}</strong>,
               </p>
               <p style="margin:0 0 24px; color:#374151; font-size:16px; line-height:1.6;">
                 Vaša rezervacija je izmenjena. Novi detalji:
@@ -463,19 +478,19 @@ function buildModificationEmailHtml(data: BookingEmailData): string {
                     <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;">
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px; width:40%;">🏠 Apartman:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${data.apartment.name}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(data.apartment.name)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Novi dolazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${startStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(startStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">📅 Novi odlazak:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${endStr}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(endStr)}</td>
                       </tr>
                       <tr>
                         <td style="padding:8px 0; color:#6b7280; font-size:14px;">🌙 Broj noći:</td>
-                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${nights}</td>
+                        <td style="padding:8px 0; color:#111827; font-size:14px; font-weight:600;">${escapeHtml(nights)}</td>
                       </tr>
                     </table>
                   </td>
@@ -513,14 +528,14 @@ function buildAdminNotificationText(
   return `
 [${eventType} REZERVACIJA] ID: ${data.id}
 
-Apartman  : ${data.apartment.name}
-Gost      : ${data.guest}
-Email     : ${data.email}
-Telefon   : ${data.phone || 'Nije uneto'}
-Dolazak   : ${startStr}
-Odlazak   : ${endStr}
-Noći      : ${nights}
-Status    : ${data.status}
+Apartman  : ${escapeHtml(data.apartment.name)}
+Gost      : ${escapeHtml(data.guest)}
+Email     : ${escapeHtml(data.email)}
+Telefon   : ${escapeHtml(data.phone || 'Nije uneto')}
+Dolazak   : ${escapeHtml(startStr)}
+Odlazak   : ${escapeHtml(endStr)}
+Noći      : ${escapeHtml(nights)}
+Status    : ${escapeHtml(data.status)}
   `.trim();
 }
 
@@ -535,16 +550,72 @@ function buildAdminNewRequestText(data: RequestEmailData): string {
   return `
 [NOVI ZAHTEV] Čeka vaše odobrenje
 
-Apartman  : ${data.apartment.name}
-Gost      : ${data.guest}
-Email     : ${data.email}
-Telefon   : ${data.phone || 'Nije uneto'}
-Dolazak   : ${startStr}
-Odlazak   : ${endStr}
-Noći      : ${nights}
+Apartman  : ${escapeHtml(data.apartment.name)}
+Gost      : ${escapeHtml(data.guest)}
+Email     : ${escapeHtml(data.email)}
+Telefon   : ${escapeHtml(data.phone || 'Nije uneto')}
+Dolazak   : ${escapeHtml(startStr)}
+Odlazak   : ${escapeHtml(endStr)}
+Noći      : ${escapeHtml(nights)}
 
 Prijavite se i idite na /admin/requests da odobrite ili odbijete zahtev.
   `.trim();
+}
+
+// =============================================================================
+// CENTRALNI RETRY OMOTAČ 🛡️ — POBOLJŠANJE-07
+// =============================================================================
+
+interface MailPayload {
+  from: string;
+  to: string;
+  subject: string;
+  html?: string;
+  text: string;
+}
+
+/**
+ * Pomoćna funkcija koja sliku slanja email-a umotava u eksponencijalni retry algoritam.
+ * Ako slanje ne uspe, pokušaće ponovo do 3 puta sa progresivno dužim pauzama (1s -> 2s -> 4s).
+ */
+async function sendMailWithRetry(mailOptions: MailPayload, attempt = 1): Promise<void> {
+  const MAX_ATTEMPTS = 3;
+  const BASE_DELAY_MS = 1000; // Početno čekanje od 1 sekunde
+
+  if (!transporter) {
+    logger.warn({ to: mailOptions.to }, '⚠ Slanje otkazano — SMTP nije konfigurisan');
+    return;
+  }
+
+  try {
+    // Pokušavamo nativno slanje preko Nodemailer-a
+    await transporter.sendMail(mailOptions);
+  } catch (err: unknown) {
+    const errorMsg = err instanceof Error ? err.message : 'SMTP Timeout/Socket Error';
+
+    if (attempt < MAX_ATTEMPTS) {
+      // Računamo progresivni delay: Pokušaj 1 = 1s, Pokušaj 2 = 2s, Pokušaj 3 = 4s
+      const nextDelay = BASE_DELAY_MS * Math.pow(2, attempt - 1);
+
+      logger.warn(
+        { attempt, nextDelayMs: nextDelay, target: mailOptions.to, errorMsg },
+        `⚠️ [MAIL ENGINE] Slanje email-a neuspešno. Pokrećem ponovni pokušaj za ${nextDelay / 1000}s...`,
+      );
+
+      // Asinhrono pauziramo izvršavanje niti pre rekurzivnog pokušaja
+      await new Promise((resolve) => setTimeout(resolve, nextDelay));
+
+      // Pokrećemo sledeću faza slanja sa uvećanim indeksom pokušaja
+      return sendMailWithRetry(mailOptions, attempt + 1);
+    }
+
+    // Ako smo ispucali sva 3 pokušaja, upisujemo kritičnu grešku u logove sistema
+    logger.error(
+      { attemptsExhausted: attempt, target: mailOptions.to, err },
+      '❌ [MAIL ENGINE CRITICAL] Slanje email obaveštenja definitivno neuspešno nakon 3 uzastopna pokušaja!',
+    );
+    throw new Error(`Email dostava prekinuta nakon maksimalnog broja pokušaja: ${errorMsg}`);
+  }
 }
 
 // =============================================================================
@@ -560,7 +631,7 @@ export async function sendBookingConfirmation(data: BookingEmailData): Promise<v
   const subject = `✅ Potvrda rezervacije — ${data.apartment.name} | ${formatDateSr(data.startDate)}`;
 
   const tasks: Promise<unknown>[] = [
-    transporter.sendMail({
+    sendMailWithRetry({
       from: env.SMTP_FROM,
       to: data.email,
       subject,
@@ -571,7 +642,7 @@ export async function sendBookingConfirmation(data: BookingEmailData): Promise<v
 
   if (env.ADMIN_EMAIL) {
     tasks.push(
-      transporter.sendMail({
+      sendMailWithRetry({
         from: env.SMTP_FROM,
         to: env.ADMIN_EMAIL,
         subject: `[NOVA] ${data.apartment.name} — ${data.guest} | ${formatDateSr(data.startDate)}`,
@@ -600,7 +671,7 @@ export async function sendBookingCancellation(data: BookingEmailData): Promise<v
   const subject = `❌ Rezervacija otkazana — ${data.apartment.name} | ${formatDateSr(data.startDate)}`;
 
   const tasks: Promise<unknown>[] = [
-    transporter.sendMail({
+    sendMailWithRetry({
       from: env.SMTP_FROM,
       to: data.email,
       subject,
@@ -611,7 +682,7 @@ export async function sendBookingCancellation(data: BookingEmailData): Promise<v
 
   if (env.ADMIN_EMAIL) {
     tasks.push(
-      transporter.sendMail({
+      sendMailWithRetry({
         from: env.SMTP_FROM,
         to: env.ADMIN_EMAIL,
         subject: `[OTKAZANA] ${data.apartment.name} — ${data.guest} | ${formatDateSr(data.startDate)}`,
@@ -638,7 +709,7 @@ export async function sendBookingModification(data: BookingEmailData): Promise<v
   const subject = `✏️ Rezervacija izmenjena — ${data.apartment.name} | ${formatDateSr(data.startDate)}`;
 
   const tasks: Promise<unknown>[] = [
-    transporter.sendMail({
+    sendMailWithRetry({
       from: env.SMTP_FROM,
       to: data.email,
       subject,
@@ -649,7 +720,7 @@ export async function sendBookingModification(data: BookingEmailData): Promise<v
 
   if (env.ADMIN_EMAIL) {
     tasks.push(
-      transporter.sendMail({
+      sendMailWithRetry({
         from: env.SMTP_FROM,
         to: env.ADMIN_EMAIL,
         subject: `[IZMENJENA] ${data.apartment.name} — ${data.guest} | ${formatDateSr(data.startDate)}`,
@@ -683,7 +754,7 @@ export async function sendNewRequestToAdmin(data: RequestEmailData): Promise<voi
 
   const startStr = formatDateSr(data.startDate);
 
-  await transporter.sendMail({
+  await sendMailWithRetry({
     from: env.SMTP_FROM,
     to: env.ADMIN_EMAIL,
     subject: `📬 [NOVI ZAHTEV] ${data.apartment.name} — ${data.guest} | ${startStr}`,
@@ -706,7 +777,7 @@ export async function sendRequestReceivedToGuest(data: RequestEmailData): Promis
     return;
   }
 
-  await transporter.sendMail({
+  await sendMailWithRetry({
     from: env.SMTP_FROM,
     to: data.email,
     subject: `📬 Zahtev primljen — ${data.apartment.name} | ${formatDateSr(data.startDate)}`,
@@ -727,7 +798,7 @@ export async function sendRequestRejectedToGuest(data: RequestEmailData): Promis
     return;
   }
 
-  await transporter.sendMail({
+  await sendMailWithRetry({
     from: env.SMTP_FROM,
     to: data.email,
     subject: `ℹ️ Zahtev za rezervaciju — ${data.apartment.name} | ${formatDateSr(data.startDate)}`,

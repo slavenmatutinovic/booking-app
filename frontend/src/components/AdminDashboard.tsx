@@ -2,6 +2,29 @@ import { useEffect, useState } from 'react';
 import { getPendingRequests, approveBookingRequest, rejectBookingRequest } from '../api/bookings';
 import { fmtShort } from '../utils/dates';
 import { ApiReservationRequest } from '../types/ui';
+import { Link } from 'react-router-dom';
+
+// 🟢 Helper: Computes localized human-readable hours remaining until expiration
+function getRemainingTimeLabel(expiresAtStr: string | Date): { text: string; isUrgent: boolean } {
+  const expiryDate = new Date(expiresAtStr);
+  const now = new Date();
+
+  const diffMs = expiryDate.getTime() - now.getTime();
+  if (diffMs <= 0) {
+    return { text: 'Ističe svakog trenutka ⏳', isUrgent: true };
+  }
+
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  const isUrgent = hours < 2; // Trigger urgent alert mode if under 2 hours remain
+
+  if (hours === 0) {
+    return { text: `Još ${minutes} min`, isUrgent };
+  }
+  return { text: `Još ${hours}h ${minutes}m`, isUrgent };
+}
 
 export function AdminDashboard() {
   const [requests, setRequests] = useState<ApiReservationRequest[]>([]);
@@ -90,14 +113,61 @@ export function AdminDashboard() {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: 20,
+          background: '#fff',
+          padding: '16px 24px',
+          borderRadius: 8,
+          marginBottom: 24,
+          boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+          border: '1px solid #e5e7eb',
         }}
       >
-        <h2 style={{ marginBottom: 20, color: '#111827' }}>📬 Zahtevi za rezervaciju na čekanju</h2>
-        {/* 🚀 SADA SE KORISTI: Ispisujemo tačno vreme poslednjeg auto-osvežavanja */}
-        <span style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic' }}>
-          Poslednje osvežavanje: {lastRefresh.toLocaleTimeString()}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ marginBottom: 20, color: '#111827' }}>
+            📬 Zahtevi za rezervaciju na čekanju
+          </h2>
+          {/* Dynamic Badge Notification Counter */}
+          <span
+            style={{
+              background: '#fef2f2',
+              color: '#ef4444',
+              fontSize: 12,
+              fontWeight: 600,
+              padding: '4px 10px',
+              borderRadius: 9999,
+              border: '1px solid #fee2e2',
+            }}
+          >
+            {requests.length} ukupno
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <span style={{ fontSize: 13, color: '#9ca3af', fontStyle: 'italic' }}>
+            Poslednje osvežavanje: {lastRefresh.toLocaleTimeString()}
+          </span>
+          {/* High-Contrast Navigation Link Anchor Button */}
+          <Link
+            to="/"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: '#3b82f6',
+              color: '#ffffff',
+              textDecoration: 'none',
+              fontWeight: 600,
+              fontSize: 13,
+              padding: '8px 16px',
+              borderRadius: 6,
+              boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
+              transition: 'background 0.15s ease',
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#2563eb')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#3b82f6')}
+          >
+            📅 Nazad na Kalendar
+          </Link>
+        </div>
       </div>
       {requests.length === 0 ? (
         <div style={{ color: '#6b7280', fontStyle: 'italic' }}>
@@ -128,72 +198,87 @@ export function AdminDashboard() {
               <th style={{ padding: 12 }}>Gost</th>
               <th style={{ padding: 12 }}>Kontakti</th>
               <th style={{ padding: 12 }}>Period</th>
+              <th style={{ padding: 12 }}>Preostalo vreme</th>
               <th style={{ padding: 12, textAlign: 'center' }}>Akcija</th>
             </tr>
           </thead>
           <tbody>
-            {requests.map((req) => (
-              <tr
-                key={req.id}
-                style={{ borderBottom: '1px solid #e5e7eb', fontSize: 14, color: '#4b5563' }}
-              >
-                <td style={{ padding: 12, fontWeight: 600, color: '#111827' }}>
-                  {req.apartment?.name}
-                </td>
-                <td style={{ padding: 12 }}>{req.guest}</td>
-                <td style={{ padding: 12 }}>
-                  <div>{req.email}</div>
-                  <div style={{ fontSize: 12, color: '#9ca3af' }}>
-                    {req.phone || 'Nema telefona'}
-                  </div>
-                </td>
-                <td style={{ padding: 12, fontWeight: 500 }}>
-                  {fmtShort(new Date(req.startDate))} {' → '} {fmtShort(new Date(req.endDate))}
-                </td>
-                <td style={{ padding: 12, textAlign: 'center' }}>
-                  <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-                    {/* Odobri dugme */}
+            {requests.map((req) => {
+              const countdown = getRemainingTimeLabel(req.expiresAt);
+              return (
+                <tr
+                  key={req.id}
+                  style={{ borderBottom: '1px solid #e5e7eb', fontSize: 14, color: '#4b5563' }}
+                >
+                  <td style={{ padding: 12, fontWeight: 600, color: '#111827' }}>
+                    {req.apartment?.name}
+                  </td>
+                  <td style={{ padding: 12 }}>{req.guest}</td>
+                  <td style={{ padding: 12 }}>
+                    <div>{req.email}</div>
+                    <div style={{ fontSize: 12, color: '#9ca3af' }}>
+                      {req.phone || 'Nema telefona'}
+                    </div>
+                  </td>
+                  <td style={{ padding: 12, fontWeight: 500 }}>
+                    {fmtShort(new Date(req.startDate))} {' → '} {fmtShort(new Date(req.endDate))}
+                  </td>
+                  <td
+                    style={{
+                      padding: 12,
+                      fontWeight: countdown.isUrgent ? 700 : 500,
+                      color: countdown.isUrgent ? '#dc2626' : '#059669',
+                      backgroundColor: countdown.isUrgent ? '#fef2f2' : 'transparent',
+                      transition: 'all 0.3s',
+                    }}
+                  >
+                    {countdown.text}
+                  </td>
+                  <td style={{ padding: 12, textAlign: 'center' }}>
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+                      {/* Odobri dugme */}
 
-                    <button
-                      onClick={() => handleApprove(req.id)}
-                      disabled={processingId === req.id}
-                      style={{
-                        background: '#10b981',
-                        color: '#fff',
-                        border: 'none',
-                        padding: '6px 14px',
-                        borderRadius: 6,
-                        cursor: processingId === req.id ? 'not-allowed' : 'pointer',
-                        fontWeight: 500,
-                        transition: 'background 0.2s',
-                      }}
-                    >
-                      {processingId === req.id ? 'Odobravanje...' : 'Odobri ✓'}
-                    </button>
-                    {/* [BUG-03 POPRAVKA] Odbij dugme — novo! */}
-                    <button
-                      onClick={() => handleReject(req.id)}
-                      disabled={!!processingId}
-                      title="Odbij zahtev i obavesti gosta emailom"
-                      style={{
-                        background: processingId === `reject-${req.id}` ? '#fef2f2' : '#fff',
-                        color: processingId === `reject-${req.id}` ? '#991b1b' : '#dc2626',
-                        border: '1.5px solid #fca5a5',
-                        padding: '6px 14px',
-                        borderRadius: 6,
-                        cursor: processingId ? 'not-allowed' : 'pointer',
-                        fontWeight: 500,
-                        fontSize: 13,
-                        transition: 'all 0.2s',
-                        opacity: !!processingId && processingId !== `reject-${req.id}` ? 0.6 : 1,
-                      }}
-                    >
-                      {processingId === `reject-${req.id}` ? 'Odbijam...' : '✕ Odbij'}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      <button
+                        onClick={() => handleApprove(req.id)}
+                        disabled={processingId === req.id}
+                        style={{
+                          background: '#10b981',
+                          color: '#fff',
+                          border: 'none',
+                          padding: '6px 14px',
+                          borderRadius: 6,
+                          cursor: processingId === req.id ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                          transition: 'background 0.2s',
+                        }}
+                      >
+                        {processingId === req.id ? 'Odobravanje...' : 'Odobri ✓'}
+                      </button>
+                      {/* [BUG-03 POPRAVKA] Odbij dugme — novo! */}
+                      <button
+                        onClick={() => handleReject(req.id)}
+                        disabled={!!processingId}
+                        title="Odbij zahtev i obavesti gosta emailom"
+                        style={{
+                          background: processingId === `reject-${req.id}` ? '#fef2f2' : '#fff',
+                          color: processingId === `reject-${req.id}` ? '#991b1b' : '#dc2626',
+                          border: '1.5px solid #fca5a5',
+                          padding: '6px 14px',
+                          borderRadius: 6,
+                          cursor: processingId ? 'not-allowed' : 'pointer',
+                          fontWeight: 500,
+                          fontSize: 13,
+                          transition: 'all 0.2s',
+                          opacity: !!processingId && processingId !== `reject-${req.id}` ? 0.6 : 1,
+                        }}
+                      >
+                        {processingId === `reject-${req.id}` ? 'Odbijam...' : '✕ Odbij'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

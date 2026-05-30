@@ -22,6 +22,7 @@ import rateLimit from 'express-rate-limit';
 import { login, logout, getMe } from './controllers/auth.controller';
 import { requireAuth } from './middleware/authMiddleware';
 import bookingsRouter from './routes/bookingsRoutes';
+import healthRouter from './routes/healthRoutes';
 import apartmentsRouter from './routes/apartmentsRoutes';
 import logRouter from './routes/logRoutes';
 import { initCleanupCron } from './cron/cleanupCron';
@@ -35,6 +36,26 @@ const PORT = env.PORT;
 // IP proxy-ja umesto stvarnog klijenta, što pokvari IP-based rate limiting.
 if (env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
+}
+
+// =============================================================================
+// 🟢  AUTOMATED GLOBAL PRODUCTION HTTPS ENFORCEMENT REDIRECT
+// =============================================================================
+if (env.NODE_ENV === 'production') {
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    // Standard reverse proxy tracking header parameter evaluation check
+    if (req.secure || req.headers['x-forwarded-proto'] === 'https') {
+      next(); // Traffic layer is already secure, advance context execution forward safely
+    } else {
+      logger.info(
+        { ip: req.ip, path: req.originalUrl },
+        '🔒 [HTTPS GUARD] Presrećem nesiguran HTTP zahtev — preusmeravam na bezbedan SSL kanal...',
+      );
+
+      // Force a clean permanent browser-cached URL redirect targeting the safe SSL tunnel structure
+      res.redirect(301, `https://${req.get('host')}${req.originalUrl}`);
+    }
+  });
 }
 
 // 🛡️ Globalni Middleware za bezbednost i parsiranje podataka
@@ -92,7 +113,6 @@ app.use(
     credentials: true, // Dozvoljava slanje i čitanje HttpOnly kolačića (JWT tokena)
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    exposedHeaders: ['set-cookie'], // Omogućava browseru da bezbedno registruje upisivanje kolačića
   }),
 );
 
@@ -130,6 +150,9 @@ app.get('/api/test', (_req, res) => {
   logger.debug('🏓 GET /api/test');
   res.json({ message: 'Backend server radi uspešno!', timestamp: new Date().toISOString() });
 });
+
+// 🟢 POBOLJŠANJE-12: Registracija novog health check endpointa
+app.use('/api/health', healthRouter);
 
 // ── Auth rute ─────────────────────────────────────────────────────────────────
 // ISPRAVKA NOV-10: Redosled middleware — loginLimiter pre registracije auth ruta

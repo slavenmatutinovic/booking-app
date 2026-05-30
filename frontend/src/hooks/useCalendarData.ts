@@ -114,15 +114,39 @@ export function useCalendarData({
         const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
         const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
 
-        const [aptData, bkgEnvelope] = await Promise.all([
+        const [aptData, firstPageEnvelope] = await Promise.all([
           getApartments(),
-          getBookings({ startMonth: startMonthStr, endMonth: endMonthStr }),
+          getBookings({ startMonth: startMonthStr, endMonth: endMonthStr, cursor: undefined }),
         ]);
         if (cancelled) return;
 
         // 🚀 KORAK 1: Sortiramo rezervacije hronološki prema datumu početka
-        // Ovo garantuje da rezerevacije unutar svakog apartmana idu redom po vremenskoj liniji
-        const rawBookings = bkgEnvelope?.bookings || [];
+        // Ovo garantuje da rezervacije unutar svakog apartmana idu redom po vremenskoj liniji
+        let rawBookings = firstPageEnvelope?.bookings || [];
+        let nextCursor = firstPageEnvelope?.nextCursor;
+
+        // 🟢 POBOLJŠANJE-02: Automatski lančani fetch u pozadini ako postoji sledeća stranica
+        // Petlja se izvršava sve dok backend vraća nextCursor token za sledeći set podataka
+        while (nextCursor && !cancelled) {
+          console.log(`[PAGINATION ENGINE] Učitavam sledeću stranicu sa cursorom: ${nextCursor}`);
+
+          const nextPageEnvelope = await getBookings({
+            startMonth: startMonthStr,
+            endMonth: endMonthStr,
+            cursor: nextCursor, // Prosleđujemo dobijeni kursor unazad na server
+          });
+
+          if (nextPageEnvelope?.bookings) {
+            // Spajamo novu stranicu sa prethodno nakupljenim rezervacijama
+            rawBookings = [...rawBookings, ...nextPageEnvelope.bookings];
+          }
+
+          // Pomeramo token pokazivača na sledeću poziciju
+          nextCursor = nextPageEnvelope?.nextCursor;
+        }
+
+        if (cancelled) return;
+
         const sortedRawBookings = [...(rawBookings as ApiBooking[])].sort(
           (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
         );

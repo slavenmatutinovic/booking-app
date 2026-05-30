@@ -69,7 +69,7 @@ function pruneOldBackups(): void {
  *
  * @param trigger Kratki opis akcije koja je pokrenula backup (za log)
  */
-export async function generateBookingExcel(trigger: string): Promise<void> {
+async function generateBookingExcel(trigger: string): Promise<void> {
   try {
     // 1. Kreiranje backup direktorijuma ako ne postoji
     if (!fs.existsSync(BACKUP_DIR)) {
@@ -161,3 +161,33 @@ export async function generateBookingExcel(trigger: string): Promise<void> {
     logger.error({ err, trigger }, '❌ excelExport — greška pri generisanju backupa');
   }
 }
+
+let excelDebounceTimeout: NodeJS.Timeout | null = null;
+
+export const triggerDebouncedExcelBackup = (contextDescription: string) => {
+  const DEBOUNCE_DELAY_MS = 5000; // 5-second cooldown window
+
+  // If a mutation occurs during an active countdown loop, evict the stale schedule instantly
+  if (excelDebounceTimeout) {
+    clearTimeout(excelDebounceTimeout);
+  }
+
+  // Reschedule the execution task to run 5 seconds after the final mutation
+  excelDebounceTimeout = setTimeout(async () => {
+    try {
+      logger.info(
+        { contextDescription },
+        '📊 [EXCEL ENGINE] Inicijalizacija debounced generisanja rezervacione rezervne kopije...',
+      );
+
+      // Invoke your original generation file handler function here
+      await generateBookingExcel(`Sistem konsolidovan: ${contextDescription}`);
+
+      logger.info('📊 [EXCEL ENGINE] Excel backup fajl uspešno upisan na disk.');
+    } catch (err) {
+      logger.error({ err }, '❌ [EXCEL ENGINE CRITICAL ERROR] Neuspešno generisanje Excel fajla');
+    } finally {
+      excelDebounceTimeout = null; // Flush reference handle layout cleanly
+    }
+  }, DEBOUNCE_DELAY_MS);
+};

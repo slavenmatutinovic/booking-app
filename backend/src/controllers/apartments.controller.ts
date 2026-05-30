@@ -112,7 +112,10 @@ export const getApartmentById = async (
   next: NextFunction,
 ): Promise<void> => {
   const { id } = req.params;
-  logger.debug({ apartmentId: id }, '🏠 GET /api/apartments/:id');
+  logger.debug(
+    { apartmentId: id, userRole: req.user?.role || 'ANONYMOUS' },
+    '🏢 GET /api/apartments/:id — Dohvatanje apartmana sa proverom privatnosti',
+  );
 
   // Prisma parametri su uvek array u Express route handler-ima — uzimamo prvi
   const safeId = Array.isArray(id) ? id[0] : id;
@@ -146,6 +149,27 @@ export const getApartmentById = async (
     if (!apartment) {
       res.status(404).json({ error: 'Apartman nije pronađen.' });
       return;
+    }
+    // 2. Read the active user permissions from optionalAuth middleware properties
+    const userRole = req.user?.role; // e.g., 'ADMIN', 'VIEWER', or undefined
+    const hasPrivilegedAccess = userRole === 'ADMIN' || userRole === 'VIEWER';
+
+    // 3. If the user is unauthenticated, mask all private data before sending
+    if (!hasPrivilegedAccess) {
+      const sanitizedBookings = apartment.bookings.map((b) => ({
+        id: b.id,
+        apartmentId: safeId,
+        startDate: b.startDate,
+        endDate: b.endDate,
+        color: '#3b82f6', // Dodajemo boju za frontend (nije privatna informacija)
+        // 🔒 GDPR Enforcement: Confidential properties are explicitly omitted
+        guest: 'Zauzeto',
+        email: null,
+        phone: null,
+      }));
+
+      // Override the original array structure with the clean data footprint
+      (apartment as any).bookings = sanitizedBookings;
     }
 
     logger.info({ apartmentId: safeId }, '✅ getApartmentById — pronađen');

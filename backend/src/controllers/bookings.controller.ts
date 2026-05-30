@@ -22,14 +22,11 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
-import { sendBookingConfirmation, sendBookingCancellation } from '../utils/emailService';
-import { createBookingSchema } from '../validators/booking.validator';
-import { appCache } from '../utils/cache';
 import { ApiError, MAX_BOOKING_DAYS } from '../../../shared/index';
-import { generateBookingExcel } from '../utils/excelExport';
+import { triggerDebouncedExcelBackup } from '../utils/excelExport';
+import { sendBookingCancellation } from '../utils/emailService';
+import { invalidateBookingCache } from '../utils/cache';
 
-// ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
-type ApartmentRow = { id: string };
 type BookingRow = {
   id: string;
   apartmentId: string;
@@ -38,291 +35,7 @@ type BookingRow = {
   status: string;
 };
 
-// ─── GET /api/bookings ─────────────────────────────────────────────────────────
-export const getBookings = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  const { month, startMonth, endMonth, apartmentId, limit = '200', cursor } = req.query;
-  logger.debug({ query: req.query, userId: req.user?.userId }, '📋 GET /api/bookings');
-
-  const where: Prisma.BookingWhereInput = { status: 'CONFIRMED' };
-
-  if (apartmentId) {
-    where.apartmentId = String(apartmentId);
-  }
-
-  // 🔒 HOTELSKE SMENE OPSEGA: Ako klijent šalje opseg meseci (npr. maj i jun)
-  if (startMonth && endMonth) {
-    const [sYear, sMon] = String(startMonth).split('-').map(Number);
-    const [eYear, eMon] = String(endMonth).split('-').map(Number);
-
-    if (sYear && sMon && eYear && eMon) {
-      const startRange = new Date(sYear, sMon - 1, 1, 0, 0, 0);
-      const endRange = new Date(eYear, eMon, 0, 23, 59, 59);
-
-      // Koristimo stroge hotelske operatore (lt i gt) da se datumi smena ne sudaraju!
-      where.startDate = { lt: endRange };
-      where.endDate = { gt: startRange };
-    }
-  }
-  // Fallback na stari jednokanalni mesec ako startMonth/endMonth ne stignu
-  else if (month) {
-    const [year, mon] = String(month).split('-').map(Number);
-    if (!year || !mon || mon < 1 || mon > 12) {
-      res.status(400).json({ error: 'Neispravan format meseca. Koristite YYYY-MM.' });
-      return;
-    }
-    const startOfMonth = new Date(year, mon - 1, 1, 0, 0, 0);
-    const endOfMonth = new Date(year, mon, 0, 23, 59, 59);
-
-    where.startDate = { lt: endOfMonth };
-    where.endDate = { gt: startOfMonth };
-  }
-
-  try {
-    const parsedLimit = Math.min(Number(limit), 500);
-
-    // Prisma query opcije
-    const queryOptions: Prisma.BookingFindManyArgs = {
-      where,
-      include: { apartment: { select: { id: true, name: true } } },
-      // Uzimamo 1 stavku više da proverimo da li ima još stranica za sledeći cursor
-      take: parsedLimit + 1,
-      orderBy: { id: 'asc' }, // Za pouzdan cursor, orderBy mora biti na unikatnom polju poput 'id'
-    };
-
-    // Ako je prosleđen cursor, dodajemo ga u Prisma opcije
-    if (cursor) {
-      queryOptions.cursor = { id: String(cursor) };
-      queryOptions.skip = 1; // Preskačemo sam cursor element da ga ne učitamo ponovo
-    }
-
-    const shouldCache = !cursor;
-    // Kreiramo dinamički ključ na osnovu parametara pretrage (npr. "bookings:2026-07")
-    const cacheKey = `bookings:${month || 'all'}:${apartmentId || 'all'}`;
-
-    if (shouldCache) {
-      const cachedBookings = appCache.get(cacheKey);
-      if (cachedBookings) {
-        res.json(cachedBookings);
-        return;
-      }
-    }
-
-    const bookings = await prisma.booking.findMany(queryOptions);
-
-    // Provera da li ima sledeće stranice
-    let nextCursor: string | undefined = undefined;
-    if (bookings.length > parsedLimit) {
-      const nextItem = bookings.pop(); // Sklanjamo taj +1 element
-      nextCursor = nextItem?.id; // Njegov ID postaje sledeći cursor
-    }
-
-    logger.info({ count: bookings.length, month, apartmentId }, '✅ getBookings — učitano');
-
-    /**
-     * Filtriranje osetljivih podataka na osnovu role pozivajućeg korisnika.
-     *
-     * Javni korisnici (gosti bez naloga) ne smeju videti:
-     *   - Ime gosta (guest) — GDPR: lično ime
-     *   - Email adresu (email) — GDPR: lični kontakt
-     *   - Broj telefona (phone) — GDPR: lični kontakt
-     *
-     * Prijavljeni korisnici (VIEWER i ADMIN) vide sve podatke.
-     *
-     * Napomena: Ovo je dodatni sloj zaštite na backendu. Frontend
-     * implementira isti filter radi UX-a (sakrij polja u UI-u),
-     * ali backend filter je jedini koji je bezbednosno relevantan.
-     */
-    const isAuthenticated = !!req.user;
-
-    const filteredBookings = isAuthenticated
-      ? bookings // Prijavljeni vide sve
-      : bookings.map(({ guest: _g, email: _e, phone: _p, ...publicFields }) => publicFields);
-    // ↑ Javni korisnici dobijaju samo: id, apartmentId, startDate, endDate, status, apartment
-
-    const responsePayload = { bookings: filteredBookings, nextCursor };
-
-    // Keširamo ovaj specifičan mesec/apartman
-    if (shouldCache) {
-      appCache.set(cacheKey, responsePayload, 1800);
-    }
-
-    res.json(responsePayload);
-  } catch (error) {
-    logger.error({ err: error }, '❌ getBookings — greška u bazi');
-    next(error); // ← Prosleđuje grešku globalnom handleru
-  }
-};
-
-// ─── POST /api/bookings ────────────────────────────────────────────────────────
-export const createBooking = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  logger.debug({ body: req.body, userId: req.user?.userId }, '📝 POST /api/bookings');
-
-  // 🚀 1. PROVERAVAMO DA LI ODOBRAVAMO POSTOJEĆI ZAHTEV GOSTA
-  const { requestId } = req.body;
-  let bookingData: {
-    apartmentId: string;
-    guest: string;
-    email: string;
-    phone: string | null;
-    startDate: Date;
-    endDate: Date;
-    createdAt?: Date;
-  };
-  try {
-    if (requestId) {
-      // Admin je kliknuo "Odobri" na tabeli zahteva
-      const request = await prisma.reservationRequest.findUnique({
-        where: { id: String(requestId) },
-      });
-
-      if (!request || request.status !== 'PENDING_APPROVAL') {
-        res.status(404).json({ error: 'Zahtev ne postoji, istakao je ili je već obrađen.' });
-        return;
-      }
-
-      // Pakujemo podatke iz zahteva za transakciju
-      bookingData = {
-        apartmentId: request.apartmentId,
-        guest: request.guest,
-        email: request.email,
-        phone: request.phone,
-        startDate: request.startDate,
-        endDate: request.endDate,
-        createdAt: request.createdAt, // Čuvamo originalni datum kreiranja zahteva u rezervaciji za evidenciju
-      };
-    } else {
-      // Standardno ručno kreiranje od strane admina — pokrećemo Zod validaciju unosa
-
-      // 🔒 SADA JE OVDE KONAČNA POBEDA: Podaci su već 100% validirani i transformisani u Date objekte
-      // od strane našeg pametnog uslovnog middleware-a na ruti! Čitamo ih direktno iz req.body.
-      bookingData = req.body;
-    }
-
-    // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
-    const booking = await prisma.$transaction(
-      async (tx) => {
-        const cleanStartDate = new Date(bookingData.startDate);
-        cleanStartDate.setUTCHours(0, 0, 0, 0);
-
-        const cleanEndDate = new Date(bookingData.endDate);
-        cleanEndDate.setUTCHours(0, 0, 0, 0);
-
-        // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
-        // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
-        const apartments = await tx.$queryRaw<ApartmentRow[]>`
-        SELECT id FROM "Apartment" WHERE id = ${bookingData.apartmentId} FOR UPDATE
-      `;
-
-        if (!apartments || apartments.length === 0) {
-          throw new Error('APARTMENT_NOT_FOUND');
-        }
-
-        // 2. Provera konflikta termina unutar bezbednog konteksta transakcije
-        const conflictingBooking = await tx.booking.findFirst({
-          where: {
-            apartmentId: bookingData.apartmentId,
-            status: 'CONFIRMED',
-            startDate: { lt: cleanEndDate }, // Ključni hotelski operator: startDate mora biti strogo manje od endDate novog zahteva
-            endDate: { gt: cleanStartDate }, // Ključni hotelski operator: endDate mora biti strogo veći od startDate novog zahteva
-          },
-        });
-
-        if (conflictingBooking) {
-          throw new Error('BOOKING_CONFLICT');
-        }
-
-        // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
-        const newBooking = await tx.booking.create({
-          data: {
-            apartmentId: bookingData.apartmentId,
-            guest: bookingData.guest,
-            email: bookingData.email,
-            phone: bookingData.phone ?? '',
-            startDate: cleanStartDate,
-            endDate: cleanEndDate,
-            status: 'CONFIRMED',
-            createdAt: bookingData.createdAt ?? new Date(),
-          },
-          include: { apartment: { select: { id: true, name: true } } },
-        });
-        // Bez ovoga zahtev ostaje PENDING_APPROVAL i pojavljuje se ponovo u listi zahteva
-        if (requestId) {
-          await tx.reservationRequest.update({
-            where: { id: String(requestId) },
-            data: { status: 'APPROVED' },
-          });
-          logger.info({ requestId }, '✅ ReservationRequest označen kao APPROVED');
-        }
-
-        return newBooking;
-      },
-      {
-        // Postavljanje kraćeg timeout-a za transakciju radi performansi (opciono)
-        timeout: 5000,
-      },
-    );
-
-    // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
-    // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
-    try {
-      const keys = appCache.keys();
-      const bookingKeys = keys.filter((key) => key.startsWith('bookings:'));
-      bookingKeys.forEach((key) => appCache.del(key));
-      logger.debug(`🧹 Obrisano ${bookingKeys.length} ključeva rezervacija iz keša.`);
-    } catch (cacheErr) {
-      // Greška u kešu ne sme da sruši kreiranje rezervacije, samo je logujemo
-      logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
-    }
-
-    logger.info({ bookingId: booking.id }, '✅ Rezervacija kreirana unutar transakcije');
-    res.status(201).json({ message: 'Rezervacija je uspešno kreirana', booking });
-
-    // Fire & forget slanje imejla potvrde gostu
-    sendBookingConfirmation(booking).catch((emailErr) => {
-      logger.error({ err: emailErr, bookingId: booking.id }, '⚠️ Email potvrde nije poslat');
-    });
-
-    // 📊 Excel backup — fire & forget, ne blokira odgovor
-    generateBookingExcel(
-      requestId
-        ? `Odobrena rezervacija (request: ${requestId})`
-        : `Kreirana rezervacija: ${booking.id}`,
-    );
-  } catch (error: unknown) {
-    // Obrada specifičnih grešaka koje su bačene unutar transakcije
-    const failedApartmentId = req.body?.apartmentId ? String(req.body.apartmentId) : 'unknown';
-    if (error instanceof Error) {
-      if (error.message === 'APARTMENT_NOT_FOUND') {
-        logger.warn({ apartmentId: failedApartmentId }, '⚠️ createBooking — apartman ne postoji');
-        res.status(404).json({ error: `Apartman sa ID ${failedApartmentId} ne postoji` });
-        return;
-      }
-
-      if (error.message === 'BOOKING_CONFLICT') {
-        logger.warn(
-          { apartmentId: failedApartmentId },
-          '⚠️ createBooking — konflikt termina unutar transakcije',
-        );
-        res.status(409).json({ error: 'Termin nije slobodan — postoji preklapajuća rezervacija' });
-        return;
-      }
-    }
-
-    logger.error({ err: error }, '❌ createBooking — neočekivana greška na transakciji');
-    next(error); // ← Prosleđuje grešku globalnom handleru
-  }
-};
-
 // ─── PATCH /api/bookings/:id ───────────────────────────────────────────────────
-
 export const updateBooking = async (
   req: Request,
   res: Response,
@@ -428,15 +141,7 @@ export const updateBooking = async (
 
     // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
     // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
-    try {
-      const keys = appCache.keys();
-      const bookingKeys = keys.filter((key) => key.startsWith('bookings:'));
-      bookingKeys.forEach((key) => appCache.del(key));
-      logger.debug(`🧹 Obrisano ${bookingKeys.length} ključeva rezervacija iz keša.`);
-    } catch (cacheErr) {
-      // Greška u kešu ne sme da sruši kreiranje rezervacije, samo je logujemo
-      logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
-    }
+    invalidateBookingCache();
 
     logger.info(
       { bookingId: updatedBooking.id },
@@ -445,7 +150,7 @@ export const updateBooking = async (
     res.json({ message: 'Rezervacija je uspešno ažurirana', booking: updatedBooking });
 
     // 📊 Excel backup — fire & forget
-    generateBookingExcel(`Izmenjena rezervacija: ${id}`);
+    triggerDebouncedExcelBackup(`Izmenjena rezervacija: ${id}`);
   } catch (error: unknown) {
     // Obrada specifičnih transakcionih grešaka
     if (error instanceof Error) {
@@ -528,17 +233,7 @@ export const deleteBooking = async (
       { timeout: 5000 },
     );
 
-    // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
-    // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
-    try {
-      const keys = appCache.keys();
-      const bookingKeys = keys.filter((key) => key.startsWith('bookings:'));
-      bookingKeys.forEach((key) => appCache.del(key));
-      logger.debug(`🧹 Obrisano ${bookingKeys.length} ključeva rezervacija iz keša.`);
-    } catch (cacheErr) {
-      // Greška u kešu ne sme da sruši kreiranje rezervacije, samo je logujemo
-      logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
-    }
+    invalidateBookingCache();
 
     logger.info(
       { bookingId: cancelledBooking.id },
@@ -554,7 +249,7 @@ export const deleteBooking = async (
       );
     });
     // 📊 Excel backup — fire & forget
-    generateBookingExcel(`Otkazana rezervacija: ${safeId}`);
+    triggerDebouncedExcelBackup(`Otkazana rezervacija: ${safeId}`);
   } catch (error: unknown) {
     // Rukovanje greškama usklađeno sa Zod v4 i TypeScript unknown standardom
     if (error instanceof Error) {

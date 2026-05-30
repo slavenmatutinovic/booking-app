@@ -13,6 +13,12 @@ function isoDatetime(errorMsg: string) {
     .transform((s) => new Date(s));
 }
 
+const getStartOfToday = (): Date => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today;
+};
+
 export const createBookingSchema = z
   .object({
     apartmentId: z
@@ -22,12 +28,14 @@ export const createBookingSchema = z
     guest: z
       .string({ error: 'Ime gosta je obavezno i mora biti tekst' })
       .min(2, { error: 'Ime gosta mora imati najmanje 2 karaktera' })
-      .max(100, { error: 'Ime gosta je predugačko' }),
+      .max(100, { error: 'Ime gosta je predugačko' })
+      .transform((s) => s.trim()), // ← Sanitizacija: ukloni whitespace
 
     email: z
       .string({ error: 'Email adresa je obavezna' })
       .check(z.email({ error: 'Neispravan format email adrese' }))
-      .max(255, { error: 'Email je predugačak' }),
+      .max(255, { error: 'Email je predugačak' })
+      .transform((s) => s.trim().toLowerCase()), // ← Normalizacija
 
     phone: z
       .string({ error: 'Broj telefona mora biti tekst' })
@@ -40,7 +48,7 @@ export const createBookingSchema = z
       'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
     ).refine(
       (date) => {
-        const absolutePastThreshold = new Date();
+        const absolutePastThreshold = getStartOfToday();
         absolutePastThreshold.setHours(absolutePastThreshold.getHours() - 12);
         return date >= absolutePastThreshold;
       },
@@ -67,17 +75,18 @@ export const createBookingSchema = z
 
 export const updateBookingSchema = z
   .object({
+    apartmentId: z.string({ message: 'Nevažeći ID apartmana.' }).optional(),
     guest: z
       .string({ error: 'Ime gosta mora biti tekst' })
       .min(2, { error: 'Ime gosta mora imati najmanje 2 karaktera' })
       .max(100, { error: 'Ime gosta je predugačko' })
-      .optional(),
+      .transform((s) => s.trim()), // ← Sanitizacija: ukloni whitespace
 
     email: z
       .string({ error: 'Email mora biti tekst' })
       .check(z.email({ error: 'Neispravan format email adrese' }))
       .max(255, { error: 'Email je predugačak' })
-      .optional(),
+      .transform((s) => s.trim().toLowerCase()), // ← Normalizacija
 
     phone: z
       .string({ error: 'Broj telefona mora biti tekst' })
@@ -153,7 +162,16 @@ export const createGuestRequestSchema = z
       .nullable()
       .transform((s) => s?.trim() || ''),
 
-    startDate: isoDatetime('startDate mora biti ISO 8601 string'),
+    startDate: z
+      .string()
+      .transform((str) => new Date(str))
+      .refine(
+        (date) => {
+          // 🟢 Guests cannot select yesterday under any timezone shift
+          return date >= getStartOfToday();
+        },
+        { message: 'Datum početka ne može biti u prošlosti.' },
+      ),
 
     endDate: isoDatetime('endDate mora biti ISO 8601 string'),
   })

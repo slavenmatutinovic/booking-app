@@ -47,6 +47,7 @@ import { useState, useEffect, JSX } from 'react';
 import { getMe } from './api/auth';
 import { remoteLogger } from './utils/remoteLogger';
 import type { AuthUser } from '../../shared/index';
+import { Toaster } from 'react-hot-toast';
 
 // =============================================================================
 // 🛡️  ADMIN GUARD KOMPONENTA (Klijentski čuvar rute)
@@ -156,6 +157,34 @@ function App() {
 
   return (
     <BrowserRouter>
+      <Toaster
+        position="top-right"
+        reverseOrder={false}
+        toastOptions={{
+          style: {
+            fontFamily: 'sans-serif',
+            fontSize: '14px',
+            borderRadius: '8px',
+            background: '#ffffff',
+            color: '#1f2937',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+          },
+          success: {
+            duration: 3000,
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#ffffff',
+            },
+          },
+          error: {
+            duration: 4000,
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#ffffff',
+            },
+          },
+        }}
+      />
       <Routes>
         {/* 📅 Kalendar — JAVNO, ali ponašanje zavisi od role */}
         <Route

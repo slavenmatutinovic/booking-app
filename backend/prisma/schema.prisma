@@ -12,20 +12,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   
-  //
-  // NAPOMENA O KONEKCIJI (Prisma 7 + Driver Adapter):
-  //
-  // Aplikacija koristi @prisma/adapter-pg koji prima pg.Pool direktno
-  // (videti: backend/src/config/prisma.ts). U runtime-u, URL se NE čita
-  // iz šeme već iz env varijable DATABASE_URL koju pg.Pool preuzima.
-  //
-  // Za Prisma CLI komande (migrate, db push, studio), potrebno je:
-  //   export DATABASE_URL="postgresql://user:pass@host:5432/dbname"
-  //   npx prisma migrate deploy
-  //
-  // Alternativno, dodati direktUrl za CLI:
-  url       = env("DATABASE_URL")       // Koristiti za runtime (ako nema adaptera)
-  directUrl = env("DATABASE_URL")       // Koristiti za Prisma CLI migracije
+ 
 }
  
 
@@ -44,7 +31,7 @@ model Apartment {
   name     String    @unique 
   description String
   bookings Booking[]
-  requests ReservationRequest[]        
+  reservationRequests  ReservationRequest[]        
 }
 
 model Booking {
@@ -71,13 +58,15 @@ model ReservationRequest {
   phone       String?
   startDate   DateTime
   endDate     DateTime
-  status      RequestStatus @default(PENDING_EMAIL)         
+  status      RequestStatus @default(PENDING_EMAIL)     
+  emailToken  String?       @unique         
   expiresAt   DateTime      
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt  
   apartment   Apartment     @relation(fields: [apartmentId], references: [id])
 
   @@index([status, expiresAt])
+  @@map("reservation_requests")
 }
 
 enum Role {

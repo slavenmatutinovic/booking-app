@@ -27,7 +27,7 @@ import {
   createBooking,
   type UpdateBookingPayload,
 } from '../api/bookings';
-
+import toast from 'react-hot-toast';
 // =============================================================================
 // 🧮 UTILITY
 // =============================================================================
@@ -85,7 +85,7 @@ export const executeCreateBooking = async ({
       ),
   );
   if (hasConflict) {
-    alert('Izabrani termin je zauzet!');
+    toast.error('Izabrani termin je zauzet!');
     return;
   }
 
@@ -146,7 +146,7 @@ export const executeCreateBooking = async ({
       setBookings((prev) => prev.filter((b) => b.id !== tempId));
 
       // Obaveštavamo gosta o uspehu
-      alert('📬 Vaš zahtev je uspešno prosleđen adminu na odobrenje!');
+      toast.success('📬 Vaš zahtev je uspešno prosleđen adminu na odobrenje!');
     }
 
     // Zatvaramo modal resetovanjem selekcije na klijentu
@@ -154,6 +154,7 @@ export const executeCreateBooking = async ({
   } catch (err) {
     // Rollback
     setBookings((prev) => prev.filter((b) => b.id !== tempId));
+    toast.error(err instanceof Error ? err.message : 'Greška pri kreiranju rezervacije');
     throw err; // Propagiraj grešku naniže (hook je hvata i prikazuje)
   }
 };
@@ -198,7 +199,7 @@ export const executeMoveBooking = async (
         b.id !== bookingId ? b : { ...b, start: fallback.originalStart, end: fallback.originalEnd },
       ),
     );
-    alert(err instanceof Error ? err.message : 'Greška pri pomeranju rezervacije');
+    toast.error(err instanceof Error ? err.message : 'Greška pri pomeranju rezervacije');
     throw err;
   }
 };

@@ -126,4 +126,5 @@ export interface ApiReservationRequest {
   startDate: string;
   endDate: string;
   apartment: { name: string };
+  expiresAt: string;
 }
