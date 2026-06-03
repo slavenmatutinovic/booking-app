@@ -3,9 +3,10 @@
 // =============================================================================
 
 import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
-import type { AuthUser } from '../../../shared/index';
+import type { AuthUser, ApartmentRateData } from '../../../shared/index';
 import type { SelData } from '../types/ui';
 import { fmtShort } from '../utils/dates';
+import { BookingPricePreview } from './BookingPricePreview';
 
 interface BookingModalProps {
   showModal: boolean;
@@ -27,6 +28,7 @@ interface BookingModalProps {
   isAdmin: boolean;
   currentUser: AuthUser | null;
   bookingError: string | null;
+  activeRates: ApartmentRateData[];
 }
 
 export const BookingModal: React.FC<BookingModalProps> = ({
@@ -39,6 +41,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   currentUser,
   bookingError,
   isCreating,
+  activeRates,
 }) => {
   // ✅ Lokalizovana stanja forme
   const [localGuestName, setLocalGuestName] = useState('');
@@ -213,6 +216,16 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           disabled={isCreating}
           aria-label="Broj telefona"
           maxLength={20}
+        />
+
+        {/* ============================================================================= */}
+        {/* 🧮 DINO-OBRAČUN PREDAJA: Dinamički pregled cena po danima i sezonama        */}
+        {/* ============================================================================= */}
+        <BookingPricePreview
+          startDate={selData.startDate.toISOString()} // Prosleđujemo selektovani početak
+          endDate={selData.endDate.toISOString()} // Prosleđujemo selektovani kraj
+          activeRates={activeRates || []} // Niz sezonskih cena prosleđen sa kalendara/apartmana
+          defaultPrice={50.0} // Fallback cena ako dan ne upada ni u jednu sezonu
         />
 
         {/* ── Submit dugme ─────────────────────────────────────────── */}

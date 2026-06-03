@@ -40,6 +40,14 @@ export interface AuthUser {
   role: UserRole;
 }
 
+export interface ApartmentRateData {
+  id: string;
+  apartmentId: string;
+  startDate: string;
+  endDate: string;
+  price: string | number;
+}
+
 // =============================================================================
 // §2  🏠 APARTMANI
 // =============================================================================
@@ -48,6 +56,7 @@ export interface Apartment {
   id: string;
   name: string;
   description?: string;
+  rates?: ApartmentRateData[];
 }
 
 // =============================================================================

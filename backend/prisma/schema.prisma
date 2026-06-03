@@ -33,10 +33,26 @@ model Apartment {
   isDeleted   Boolean  @default(false)
   deletedAt   DateTime?
 
+  rates     ApartmentRate[] 
   bookings Booking[]
   reservationRequests  ReservationRequest[]        
 
    @@index([isDeleted])
+}
+
+model ApartmentRate {
+  id          String    @id @default(cuid())
+  apartmentId String
+  apartment   Apartment @relation(fields: [apartmentId], references: [id])
+  
+  startDate   DateTime  // When this seasonal rate starts (inclusive)
+  endDate     DateTime  // When this seasonal rate ends (inclusive)
+  price       Decimal   @db.Decimal(10, 2) // Nightly rate for this window
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([apartmentId, startDate, endDate])
 }
 
 model Booking {

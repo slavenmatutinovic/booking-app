@@ -31,6 +31,8 @@ import {
 import { requireAuth, requireAdmin } from '../middleware/authMiddleware';
 import { validateBody } from '../middleware/validateMiddleware';
 import { createApartmentSchema, updateApartmentSchema } from '../validators/apartment.validator';
+import { createApartmentRate } from '../controllers/rates.controller';
+import { createApartmentRateSchema } from '../validators/rate.validator';
 
 const router = Router();
 
@@ -65,6 +67,14 @@ router.get('/:id', getApartmentById);
  * Body: { name: string, description?: string }
  */
 router.post('/', requireAuth, requireAdmin, validateBody(createApartmentSchema), createApartment);
+
+router.post(
+  '/apartments/rates',
+  requireAuth,
+  requireAdmin,
+  validateBody(createApartmentRateSchema),
+  createApartmentRate,
+);
 
 /**
  * PATCH /api/apartments/:id

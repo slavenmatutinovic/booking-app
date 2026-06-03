@@ -226,6 +226,7 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
             isAdmin={isAdmin}
             currentUser={currentUser}
             bookingError={bookingError}
+            activeRates={apartments.find((a) => a.id === selData.aptId)?.rates || []}
             isCreating={isCreating}
           />,
           document.body, // 👈 Ubrizgava modal direktno na dno HTML-a van svih divova
