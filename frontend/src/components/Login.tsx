@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'; // 1. UVOZ KUKE ZA NAVIGACIJU
 import './Login.css'; // 🚀 Uvozimo eksterni CSS fajl koji smo upravo kreirali
 import { loginUser } from '../api/auth'; // Koristiti postojeću funkciju
 import { remoteLogger } from '../utils/remoteLogger';
-import type { AuthUser } from '../types';
+import type { AuthUser } from '../../../shared/index'; // Tip koji definiše minimalne podatke o korisniku nakon prijave
 
 interface LoginProps {
   onLoginSuccess: (user: AuthUser) => void;
