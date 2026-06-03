@@ -33,6 +33,11 @@ const envSchema = z.object({
 
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 
+  BACKEND_URL: z
+    .string()
+    .url({ message: 'BACKEND_URL mora biti validan URL format (npr. https://mojsajt.com)' })
+    .default('http://localhost:4000'), // Synchronized with your global port configuration fallback
+
   FRONTEND_URL: z.url().default('http://localhost:5173'),
 
   // ─── Seed lozinka (za db:seed komandu) ───────────────────────────────────

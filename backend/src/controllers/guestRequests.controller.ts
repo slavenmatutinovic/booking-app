@@ -4,7 +4,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { randomUUID } from 'crypto';
-import { appCache, CACHE_KEYS } from '../utils/cache';
+import { appCache, CACHE_KEYS, invalidateBookingCache } from '../utils/cache';
 import { Mutex } from 'async-mutex';
 import { sendNewRequestToAdmin, sendRequestReceivedToGuest } from '../utils/emailService';
 
@@ -85,7 +85,7 @@ export const createBookingRequest = async (
     });
 
     // 3. Slanje email linka gostu za verifikaciju
-    const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:4000'}/api/bookings/requests/verify?token=${token}`;
+    const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:4000'}/api/bookings/verify?token=${token}`;
 
     sendRequestReceivedToGuest({
       id: newRequest.id,
@@ -95,6 +95,7 @@ export const createBookingRequest = async (
       startDate: newRequest.startDate,
       endDate: newRequest.endDate,
       apartment: newRequest.apartment,
+      verificationLink,
     }).catch((err) => logger.error(err));
 
     logger.info({ requestId: newRequest.id }, '✅ Zahtev upisan pod statusom PENDING_EMAIL');
@@ -132,7 +133,12 @@ export const verifyReservationEmail = async (
       include: { apartment: { select: { id: true, name: true } } },
     });
 
-    if (!targetRequest || targetRequest.status !== 'PENDING_EMAIL') {
+    const now = new Date();
+    if (
+      !targetRequest ||
+      targetRequest.status !== 'PENDING_EMAIL' ||
+      targetRequest.expiresAt < now
+    ) {
       res
         .status(404)
         .send('<h1>Verifikacija neuspešna: Link je nevažeći ili je istekao rok od 2 sata.</h1>');
@@ -185,6 +191,8 @@ export const verifyReservationEmail = async (
     });
 
     appCache.del(CACHE_KEYS.PENDING_REQUESTS);
+    invalidateBookingCache();
+
     logger.info(
       { requestId: updatedRequest.id },
       '🚀 Zahtev uspešno potvrđen i prebačen u PENDING_APPROVAL',

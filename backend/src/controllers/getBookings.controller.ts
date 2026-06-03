@@ -69,12 +69,16 @@ export const getBookings = async (
     }
 
     const shouldCache = !cursor;
+
+    const rangeToken = startMonth && endMonth ? `${startMonth}_${endMonth}` : month || 'all';
+
     // Kreiramo dinamički ključ na osnovu parametara pretrage (npr. "bookings:2026-07")
-    const cacheKey = CACHE_KEYS.BOOKINGS(month, apartmentId);
+    const cacheKey = CACHE_KEYS.BOOKINGS(rangeToken, apartmentId);
 
     if (shouldCache) {
       const cachedBookings = appCache.get(cacheKey);
       if (cachedBookings) {
+        logger.debug({ cacheKey }, '⚡ Cache HIT - Vraćam podatke iz memorije');
         res.json(cachedBookings);
         return;
       }
@@ -108,15 +112,20 @@ export const getBookings = async (
     const isAuthenticated = !!req.user;
 
     const filteredBookings = isAuthenticated
-      ? bookings // Prijavljeni vide sve
-      : bookings.map(({ guest: _g, email: _e, phone: _p, ...publicFields }) => publicFields);
-    // ↑ Javni korisnici dobijaju samo: id, apartmentId, startDate, endDate, status, apartment
+      ? bookings
+      : bookings.map((b) => ({
+          ...b,
+          guest: 'Zauzeto', // Sakriveno ime
+          email: 'skriveno@podaci.com', // Sakriven email
+          phone: null, // Sakriven telefon
+        }));
 
     const responsePayload = { bookings: filteredBookings, nextCursor };
 
     // Keširamo ovaj specifičan mesec/apartman
     if (shouldCache) {
       appCache.set(cacheKey, responsePayload, 1800);
+      logger.debug({ cacheKey }, '💾 Cache MISS - Upisano u memoriju');
     }
 
     res.json(responsePayload);

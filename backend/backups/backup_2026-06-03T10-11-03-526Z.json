@@ -1,0 +1,384 @@
+{
+  "exportedAt": "2026-06-03T10:11:03.521Z",
+  "version": "1.0",
+  "tables": {
+    "users": [
+      {
+        "id": "cmpesfkvi0000fkttkech324x",
+        "email": "admin@booking.local",
+        "password": "$2b$10$BTOTSFD8JolVBRg.pfKCme1gPaxBUL09BOrSDfbCnX/nEDDJIflgi",
+        "role": "ADMIN",
+        "createdAt": "2026-05-21T01:04:11.119Z",
+        "tokenVersion": 53
+      }
+    ],
+    "apartments": [
+      {
+        "id": "cmpg1vkk80000ogtt1c6gzqmy",
+        "name": "Apartment 1",
+        "description": "Jednosoban apartman — prizemlje",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkb0001ogttdbiom44u",
+        "name": "Apartment 2",
+        "description": "Jednosoban apartman — prvi sprat",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkc0002ogtttfk64q16",
+        "name": "Apartment 3",
+        "description": "Dvosoban apartman — prizemlje",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkd0003ogttpycs696r",
+        "name": "Apartment 4",
+        "description": "Dvosoban apartman — prvi sprat",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkke0004ogttlvzrp10j",
+        "name": "Apartment 5",
+        "description": "Studio — pogled na more",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkf0005ogttyus138l6",
+        "name": "Apartment 6",
+        "description": "Studio — pogled na baštu",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkg0006ogtto9auw5i8",
+        "name": "Apartment 7",
+        "description": "Trosoban apartman — penthouse",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkh0007ogtt52m862a2",
+        "name": "Apartment 8",
+        "description": "Jednosoban apartman — prizemlje, porodični",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkki0008ogtti6e5ls4y",
+        "name": "Apartment 9",
+        "description": "Dvosoban apartman — terasa",
+        "isDeleted": false,
+        "deletedAt": null
+      },
+      {
+        "id": "cmpg1vkkj0009ogtth2wdpipp",
+        "name": "Apartment 10",
+        "description": "Lux apartman — panorama",
+        "isDeleted": false,
+        "deletedAt": null
+      }
+    ],
+    "bookings": [
+      {
+        "id": "seed-b1",
+        "apartmentId": "cmpg1vkk80000ogtt1c6gzqmy",
+        "guest": "John Smith",
+        "email": "johnsmith@booking.local",
+        "phone": "+381601234567",
+        "startDate": "2026-05-01T00:00:00.000Z",
+        "endDate": "2026-05-05T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-21T22:16:19.951Z",
+        "updatedAt": "2026-05-21T22:16:19.951Z"
+      },
+      {
+        "id": "seed-b2",
+        "apartmentId": "cmpg1vkkc0002ogtttfk64q16",
+        "guest": "Anna Müller",
+        "email": "annamüller@booking.local",
+        "phone": "+381601234567",
+        "startDate": "2026-05-08T00:00:00.000Z",
+        "endDate": "2026-05-11T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-21T22:16:19.954Z",
+        "updatedAt": "2026-05-21T22:16:19.954Z"
+      },
+      {
+        "id": "seed-b4",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "Sofia Rossi",
+        "email": "sofiarossi@booking.local",
+        "phone": "+381601234567",
+        "startDate": "2026-05-03T00:00:00.000Z",
+        "endDate": "2026-05-07T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-21T22:16:19.959Z",
+        "updatedAt": "2026-05-21T22:16:19.959Z"
+      },
+      {
+        "id": "seed-b5",
+        "apartmentId": "cmpg1vkkg0006ogtto9auw5i8",
+        "guest": "Luka Marić",
+        "email": "lukamarić@booking.local",
+        "phone": "+381601234567",
+        "startDate": "2026-05-14T00:00:00.000Z",
+        "endDate": "2026-05-20T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-21T22:16:19.961Z",
+        "updatedAt": "2026-05-21T22:16:19.961Z"
+      },
+      {
+        "id": "cmpoe85dn00013ctt6u652lv6",
+        "apartmentId": "cmpg1vkkh0007ogtt52m862a2",
+        "guest": "das",
+        "email": "da@sda.com",
+        "phone": "",
+        "startDate": "2026-06-05T00:00:00.000Z",
+        "endDate": "2026-06-11T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-27T18:23:59.984Z",
+        "updatedAt": "2026-05-27T18:44:35.368Z"
+      },
+      {
+        "id": "cmpg3557r00007ottjhgrv27b",
+        "apartmentId": "cmpg1vkk80000ogtt1c6gzqmy",
+        "guest": "Nikola Nikolić",
+        "email": "nikola@email.com",
+        "phone": "+38161999888",
+        "startDate": "2026-06-01T12:00:00.000Z",
+        "endDate": "2026-06-05T12:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-21T22:51:46.216Z",
+        "updatedAt": "2026-05-22T23:44:55.171Z"
+      },
+      {
+        "id": "cmpl67rco0000l0ttput3qkbh",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "perica",
+        "email": "stevica@gmil.com",
+        "phone": "+38566889911",
+        "startDate": "2026-06-06T00:00:00.000Z",
+        "endDate": "2026-06-11T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-25T12:16:37.944Z",
+        "updatedAt": "2026-05-30T00:21:31.466Z"
+      },
+      {
+        "id": "cmpk133ox0000usttln5l8g3h",
+        "apartmentId": "cmpg1vkkf0005ogttyus138l6",
+        "guest": "per",
+        "email": "slaven@gmail.com",
+        "phone": "+3815658",
+        "startDate": "2026-06-02T00:00:00.000Z",
+        "endDate": "2026-06-07T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-24T17:05:16.401Z",
+        "updatedAt": "2026-05-30T00:22:45.713Z"
+      },
+      {
+        "id": "cmphjku7j0000gkttjfa4bim9",
+        "apartmentId": "cmpg1vkkd0003ogttpycs696r",
+        "guest": "sad",
+        "email": "nikola@email.com",
+        "phone": "",
+        "startDate": "2026-05-28T22:00:00.000Z",
+        "endDate": "2026-06-05T22:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-22T23:19:38.479Z",
+        "updatedAt": "2026-05-22T23:19:49.421Z"
+      },
+      {
+        "id": "cmphlfr700000ecttmt4hx9em",
+        "apartmentId": "cmpg1vkkj0009ogtth2wdpipp",
+        "guest": "fddf",
+        "email": "nikola@email.com",
+        "phone": "",
+        "startDate": "2026-05-26T22:00:00.000Z",
+        "endDate": "2026-06-01T22:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-23T00:11:40.524Z",
+        "updatedAt": "2026-05-23T00:11:54.291Z"
+      },
+      {
+        "id": "cmpiapjhl00001wttpmrtrm6g",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "das",
+        "email": "nikola@email.com",
+        "phone": "",
+        "startDate": "2026-05-27T22:00:00.000Z",
+        "endDate": "2026-06-04T22:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-23T11:59:07.497Z",
+        "updatedAt": "2026-05-23T11:59:15.068Z"
+      },
+      {
+        "id": "cmpresbni0002zwtt67q1zi7z",
+        "apartmentId": "cmpg1vkkf0005ogttyus138l6",
+        "guest": "peica",
+        "email": "prrr@fsfdssd.com",
+        "phone": "",
+        "startDate": "2026-06-08T00:00:00.000Z",
+        "endDate": "2026-06-13T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-29T21:03:01.037Z",
+        "updatedAt": "2026-05-30T00:25:16.705Z"
+      },
+      {
+        "id": "cmpreqss70000zwtt7djpvbya",
+        "apartmentId": "cmpg1vkkh0007ogtt52m862a2",
+        "guest": "perioca",
+        "email": "peroc@sad.com",
+        "phone": "",
+        "startDate": "2026-06-12T00:00:00.000Z",
+        "endDate": "2026-06-18T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-29T21:02:00.237Z",
+        "updatedAt": "2026-05-30T00:57:00.977Z"
+      },
+      {
+        "id": "cmpiayga90000r4ttwbdbwhyy",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "xfsd",
+        "email": "nikola@email.com",
+        "phone": "",
+        "startDate": "2026-05-29T00:00:00.000Z",
+        "endDate": "2026-06-06T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-23T12:06:03.249Z",
+        "updatedAt": "2026-05-28T22:58:33.262Z"
+      },
+      {
+        "id": "cmpoe8y0x00023cttpa7q8z3d",
+        "apartmentId": "cmpg1vkkf0005ogttyus138l6",
+        "guest": "prdsf",
+        "email": "fsdfsd@fs.fs",
+        "phone": "+3465465",
+        "startDate": "2026-06-18T00:00:00.000Z",
+        "endDate": "2026-06-23T00:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-27T18:24:48.704Z",
+        "updatedAt": "2026-05-27T18:24:52.823Z"
+      },
+      {
+        "id": "cmpscf84m0000t0tt92bp3wfn",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "rrrrr",
+        "email": "rrrr@rr.com",
+        "phone": "",
+        "startDate": "2026-06-13T00:00:00.000Z",
+        "endDate": "2026-06-17T00:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-30T12:44:47.194Z",
+        "updatedAt": "2026-05-30T12:44:51.510Z"
+      },
+      {
+        "id": "cmpn9fdlx0001wsttf9mky8u3",
+        "apartmentId": "cmpg1vkke0004ogttlvzrp10j",
+        "guest": "aca",
+        "email": "aca@aca.aca",
+        "phone": "+56465465465",
+        "startDate": "2026-06-09T00:00:00.000Z",
+        "endDate": "2026-06-15T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-26T23:22:04.581Z",
+        "updatedAt": "2026-05-29T01:07:56.287Z"
+      },
+      {
+        "id": "cmpjvc2000000ictti2yyf4t0",
+        "apartmentId": "cmpg1vkkd0003ogttpycs696r",
+        "guest": "jghjggjf",
+        "email": "jh@ds.fd",
+        "phone": "",
+        "startDate": "2026-06-02T00:00:00.000Z",
+        "endDate": "2026-06-05T00:00:00.000Z",
+        "status": "CANCELLED",
+        "createdAt": "2026-05-24T14:24:16.416Z",
+        "updatedAt": "2026-05-29T17:30:00.343Z"
+      },
+      {
+        "id": "cmpreui9i0004zwttym15u2kb",
+        "apartmentId": "cmpg1vkkd0003ogttpycs696r",
+        "guest": "blalsad",
+        "email": "blasad@gmail.com",
+        "phone": "",
+        "startDate": "2026-06-04T00:00:00.000Z",
+        "endDate": "2026-06-09T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-29T21:04:43.557Z",
+        "updatedAt": "2026-05-29T21:05:05.220Z"
+      },
+      {
+        "id": "seed-b3",
+        "apartmentId": "cmpg1vkke0004ogttlvzrp10j",
+        "guest": "Michael Chen",
+        "email": "michaelchen@booking.local",
+        "phone": "+381601234567",
+        "startDate": "2026-05-12T00:00:00.000Z",
+        "endDate": "2026-05-18T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-21T22:16:19.957Z",
+        "updatedAt": "2026-05-29T21:05:47.249Z"
+      },
+      {
+        "id": "cmpoeavut00043cttxmrcaxe6",
+        "apartmentId": "cmpg1vkkd0003ogttpycs696r",
+        "guest": "perica",
+        "email": "bukic@gmail.com",
+        "phone": "",
+        "startDate": "2026-06-09T00:00:00.000Z",
+        "endDate": "2026-06-15T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-27T18:26:09.742Z",
+        "updatedAt": "2026-05-29T23:35:55.934Z"
+      },
+      {
+        "id": "cmpoecbvu00063cttg6kdlnpr",
+        "apartmentId": "cmpg1vkk80000ogtt1c6gzqmy",
+        "guest": "peroca",
+        "email": "perica@gmail.com",
+        "phone": "+6456564",
+        "startDate": "2026-06-03T00:00:00.000Z",
+        "endDate": "2026-06-23T00:00:00.000Z",
+        "status": "CONFIRMED",
+        "createdAt": "2026-05-27T18:27:18.222Z",
+        "updatedAt": "2026-05-28T23:29:54.977Z"
+      }
+    ],
+    "reservationRequests": [
+      {
+        "id": "cmpscfq470001t0tt8demqvwh",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "mmmmm",
+        "email": "mmmm@mmmm.com",
+        "phone": "",
+        "startDate": "2026-06-13T00:00:00.000Z",
+        "endDate": "2026-06-16T00:00:00.000Z",
+        "status": "EXPIRED",
+        "emailToken": "8cf5afa3-8a1f-4d91-ae0a-38dda6ac458e",
+        "expiresAt": "2026-05-30T14:45:10.517Z",
+        "createdAt": "2026-05-30T12:45:10.519Z",
+        "updatedAt": "2026-05-30T15:00:00.062Z"
+      },
+      {
+        "id": "cmpscghy70002t0ttm19apt4g",
+        "apartmentId": "cmpg1vkkb0001ogttdbiom44u",
+        "guest": "fffff",
+        "email": "sladsa@gmail.com",
+        "phone": "",
+        "startDate": "2026-06-14T00:00:00.000Z",
+        "endDate": "2026-06-19T00:00:00.000Z",
+        "status": "EXPIRED",
+        "emailToken": "b0b13d14-95df-4e93-b2c6-7d71446e5c7f",
+        "expiresAt": "2026-05-30T14:45:46.590Z",
+        "createdAt": "2026-05-30T12:45:46.592Z",
+        "updatedAt": "2026-05-30T15:00:00.062Z"
+      }
+    ]
+  }
+}

@@ -84,8 +84,8 @@ export interface CreateBookingPayload {
   email: string;
   phone?: string | null;
   /** ISO 8601 string ili Date objekat */
-  startDate: string | Date;
-  endDate: string | Date;
+  startDate: string;
+  endDate: string;
 }
 
 /**

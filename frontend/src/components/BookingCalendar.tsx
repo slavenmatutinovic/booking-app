@@ -221,16 +221,12 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
             createBooking={createBooking}
             apartmentsCount={apartments.length}
             aptIdx={apartments.findIndex((a) => a.id === selData?.aptId)} // Računamo indeks uživo na osnovu ID-ja apartmana
-            daysCount={days.length}
             dayW={dayW}
-            rowH={ROW_H}
             modalW={MODAL_W}
             isAdmin={isAdmin}
             currentUser={currentUser}
             bookingError={bookingError}
-            scrollLeft={scrollLeft}
             isCreating={isCreating}
-            isDeleting={isDeleting}
           />,
           document.body, // 👈 Ubrizgava modal direktno na dno HTML-a van svih divova
         )}

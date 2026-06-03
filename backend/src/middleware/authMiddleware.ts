@@ -44,6 +44,7 @@ import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { prisma } from '../config/prisma';
 import { UserRole } from '@shared/index';
+import { appCache, getCookieOptions } from '../utils/cache';
 
 interface JwtPayload {
   userId: string;
@@ -72,26 +73,14 @@ declare global {
 // =============================================================================
 
 /**
- * Middleware koji blokira zahtjeve bez validnog JWT tokena.
+ * 🔒 AUTENTIFIKACIJA KORISNIKA (Hibridni State-Tracked JWT Middleware)
  *
- * Provjerava HttpOnly kolačić 'token', verifikuje potpis i dekodira payload.
- * Ne pristupa bazi podataka — čisto stateless JWT verifikacija.
+ * Verifikuje potpis klijentskog tokena, a zatim proverava 'tokenVersion'
+ * radi instant opoziva sesije (npr. nakon odjave korisnika).
  *
- * Kada uspije: popunjava req.user i poziva next()
- * Kada ne uspije: vraća 401 i NE poziva next()
- *
- * Koristiti za: POST, PATCH, DELETE rute koje zahtjevaju prijavu
+ * ⚡ Optimizacija: Koristi lokalni in-memory keš (appCache) kako bi sprečio
+ * ponovljene DB lookup round-trip upite na svakom zaštićenom API pozivu.
  */
-
-// Pomocna funkcija za konfiguraciju bezbednih opcija kolacica
-const getCookieOptions = () => {
-  const isProduction = process.env.NODE_ENV === 'production';
-  return {
-    httpOnly: true,
-    secure: isProduction, // true samo u produkciji (zahteva HTTPS)
-    sameSite: isProduction ? ('strict' as const) : ('lax' as const),
-  };
-};
 
 export const requireAuth = async (
   req: Request,
@@ -116,20 +105,44 @@ export const requireAuth = async (
 
     const payload = jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
 
-    // 🔒 REŠENJE ZA BUG-07: Provera uništenih sesija (Logout opoziv)
-    // Brzi upit u bazu proverava da li je korisnik u međuvremenu kliknuo na Logout
-    const dbUser = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: { tokenVersion: true },
-    });
+    // Dinamički ključ za ovog specifičnog korisnika
+    const cacheKey = `user:session:${payload.userId}`;
 
-    if (!dbUser || dbUser.tokenVersion !== payload.tokenVersion) {
+    // ⚡ KORAK 1: Pokušavamo da izvučemo podatke o sesiji iz brze memorije (RAM)
+    let cachedSession = appCache.get<{ tokenVersion: number; role: 'ADMIN' | 'VIEWER' }>(cacheKey);
+
+    if (!cachedSession) {
+      // 💾 Cache MISS: Idemo u bazu samo ako podatak nije u memoriji
+      const dbUser = await prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { tokenVersion: true, role: true },
+      });
+
+      if (!dbUser) {
+        logger.warn({ userId: payload.userId }, '⚠️ Korisnik iz tokena više ne postoji u bazi!');
+        res.clearCookie('token', getCookieOptions());
+        res.status(401).json({ error: 'Korisnik više ne postoji. Prijavite se ponovo.' });
+        return;
+      }
+
+      cachedSession = {
+        tokenVersion: dbUser.tokenVersion,
+        role: dbUser.role as 'ADMIN' | 'VIEWER',
+      };
+
+      // Keširamo podatke o korisniku na 5 minuta (300 sekundi) kako bismo rasteretili bazu
+      appCache.set(cacheKey, cachedSession, 300);
+    }
+
+    // 🔒 KORAK 2: Provera validnosti verzije tokena (Logout / Poništavanje opoziv)
+    if (cachedSession.tokenVersion !== payload.tokenVersion) {
       logger.warn(
         { userId: payload.userId },
         '⚠️ Pokušaj pristupa sa opozvanim/starim JWT tokenom!',
       );
 
-      // VAŽNO: Brišemo stari nevažeći kolačić iz browsera da ga oslobodimo petlje
+      // Brišemo keš jer je token definitivno nevalidan
+      appCache.del(cacheKey);
       res.clearCookie('token', getCookieOptions());
 
       res.status(401).json({ error: 'Sesija je istekla ili je poništena. Prijavite se ponovo.' });

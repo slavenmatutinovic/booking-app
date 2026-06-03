@@ -43,33 +43,6 @@ export const getPendingRequests = async (
 };
 
 /**
- * GET /api/bookings/requests/count
- * Vraća broj aktivnih zahteva za navigacioni badge.
- */
-export const getPendingRequestsCount = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    const cachedRequests = appCache.get<any[]>(CACHE_KEYS.PENDING_REQUESTS);
-    if (cachedRequests) {
-      res.json({ count: cachedRequests.length });
-      return;
-    }
-
-    const count = await prisma.reservationRequest.count({
-      where: { status: 'PENDING_APPROVAL' },
-    });
-
-    res.json({ count });
-  } catch (error) {
-    logger.error({ err: error }, '❌ getPendingRequestsCount — greška pri brojanju zahteva');
-    next(error);
-  }
-};
-
-/**
  * PATCH /api/bookings/requests/:id/reject
  * 🔑 ADMIN-ONLY: Odbija zahtev gosta (menja status u REJECTED)
  */

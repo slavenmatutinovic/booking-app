@@ -44,6 +44,7 @@ export interface RequestEmailData {
     id: string;
     name: string;
   };
+  verificationLink?: string;
 }
 
 /**

@@ -10,7 +10,8 @@ export const createApartmentSchema = z.object({
     .string({ error: 'Opis mora biti tekst' })
     .max(1000, { error: 'Opis je predugačak' })
     .optional()
-    .nullable(),
+    .nullable()
+    .default(null),
 });
 
 export const updateApartmentSchema = createApartmentSchema.partial();

@@ -26,6 +26,7 @@ import healthRouter from './routes/healthRoutes';
 import apartmentsRouter from './routes/apartmentsRoutes';
 import logRouter from './routes/logRoutes';
 import { initCleanupCron } from './cron/cleanupCron';
+import { initBackupCron } from './cron/backupCreation';
 import { Prisma } from '@prisma/client';
 import compression from 'compression';
 
@@ -148,7 +149,7 @@ const logLimiter = rateLimit({
 // 🗺️ Osnovna test ruta za proveru ispravnosti servera
 app.get('/api/test', (_req, res) => {
   logger.debug('🏓 GET /api/test');
-  res.json({ message: 'Backend server radi uspešno!', timestamp: new Date().toISOString() });
+  res.status(200).json({ status: 'UP' });
 });
 
 // 🟢 POBOLJŠANJE-12: Registracija novog health check endpointa
@@ -177,6 +178,7 @@ app.use('/api/bookings', bookingsRouter);
 
 // ⏰ Pokretanje pozadinskih cron zadataka
 initCleanupCron();
+initBackupCron();
 
 // ── Handle 404 — Nepostojeće Rute ─────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {

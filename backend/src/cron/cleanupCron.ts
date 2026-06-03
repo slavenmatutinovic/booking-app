@@ -44,7 +44,7 @@
 import cron from 'node-cron';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
-import { appCache, CACHE_KEYS } from '../utils/cache';
+import { appCache, CACHE_KEYS, invalidateBookingCache } from '../utils/cache';
 
 // =============================================================================
 // ⏰ INICIJALIZACIJA CRON ZADATKA
@@ -70,75 +70,72 @@ export const initCleanupCron = () => {
     logger.error('❌ Neispravan cron izraz — cron zadatak NEĆE biti registrovan!');
     return;
   }
-
+  // 🔄 1. Registracija satnog rasporeda ("Na svaki pun sat")
   cron.schedule('0 * * * *', async () => {
-    logger.info('⏰ Cron start: čišćenje isteklih zahteva za rezervaciju...');
-
-    try {
-      const now = new Date();
-
-      // ─── Soft delete: PENDING → EXPIRED ──────────────────────────────────
-      //
-      // Kriteriji za EXPIRED:
-      //   • expiresAt < now     → rok je prošao
-      //   • status PENDING_*    → zahtev još nije obrađen
-      //
-      // APPROVED i REJECTED zahtevi se ne diraju — već su obrađeni.
-      const updated = await prisma.reservationRequest.updateMany({
-        where: {
-          expiresAt: { lt: now },
-          status: { in: ['PENDING_EMAIL', 'PENDING_APPROVAL'] },
-        },
-        data: {
-          status: 'EXPIRED',
-        },
-      });
-
-      // ─── Alternativa: Hard delete (trajno brisanje) ───────────────────────
-      //
-      // Ako istorija nije potrebna, otkomentarišite ovo i uklonite soft delete gore:
-      //
-      // const deleted = await prisma.reservationRequest.deleteMany({
-      //   where: {
-      //     expiresAt: { lt: now },
-      //     status: { in: ['PENDING_EMAIL', 'PENDING_APPROVAL'] }
-      //   }
-      // });
-      // logger.info(`✅ Cron završen. Obrisano ${deleted.count} isteklih zahteva.`);
-
-      if (updated.count > 0) {
-        appCache.del(CACHE_KEYS.PENDING_REQUESTS);
-        logger.info(
-          { count: updated.count },
-          '✅ Cron završen — istekli zahtevi označeni kao EXPIRED',
-        );
-      } else {
-        // Debug nivo — nema svrhe logirati svaki sat da nema ništa za čistiti
-        logger.debug('✅ Cron završen — nema isteklih zahteva');
-      }
-    } catch (error: unknown) {
-      // ─── Graceful handling: Tabela ne postoji u bazi ─────────────────────
-      // Čistimo proveri tipa bez labavog 'as { code?: string }' kastovanja
-      const hasErrorCode = error && typeof error === 'object' && 'code' in error;
-      const isTableMissingError = hasErrorCode && (error as { code: string }).code === 'P2021';
-      const isMissingMessage = error instanceof Error && error.message.includes('does not exist');
-
-      if (isTableMissingError || isMissingMessage) {
-        logger.warn(
-          '⚠️ ReservationRequest tabela ne postoji u bazi — preskačem cron do sledeće migracije.',
-        );
-        return;
-      }
-
-      // ─── Sve ostale greške su stvarni problemi ────────────────────────────
-      //
-      // Primer: baza je nedostupna, network timeout, lock timeout...
-      // Logujemo kao ERROR da monitoring sistem može reagovati.
-      // Ne rušimo server — cron će probati ponovo za sat.
-      const poruka = error instanceof Error ? error.message : 'Nepoznata greška';
-      logger.error({ err: error }, `❌ Cron greška pri čišćenju isteklih zahteva: ${poruka}`);
-    }
+    await executeCleanup();
   });
+
+  // Ne čekamo da prođe prvih sat vremena.
+  executeCleanup().catch((err) => logger.error({ err }, 'Greška pri inicijalnom čišćenju'));
 
   logger.info('⏰ Cron zadatak registrovan: čišćenje isteklih zahteva (svaki sat)');
 };
+
+// =============================================================================
+// ⏰ GLAVNA FUNKCIJA ZA ČIŠĆENJE (Može se zvati sa više mesta)
+// =============================================================================
+async function executeCleanup(): Promise<void> {
+  logger.info('⏰ Pokrećem čišćenje isteklih zahteva za rezervaciju...');
+
+  try {
+    const now = new Date();
+
+    // ─── Soft delete: PENDING → EXPIRED ──────────────────────────────────
+    // Kriterijumi za EXPIRED:
+    //   • expiresAt < now                  → rok za verifikaciju/odobrenje je prošao
+    //   • status PENDING_EMAIL / APPROVAL  → zahtev još uvek nije finalizovan
+    const updated = await prisma.reservationRequest.updateMany({
+      where: {
+        expiresAt: { lt: now },
+        status: { in: ['PENDING_EMAIL', 'PENDING_APPROVAL'] },
+      },
+      data: {
+        status: 'EXPIRED',
+      },
+    });
+
+    if (updated.count > 0) {
+      // 1. Brišemo admin listu zahteva na čekanju iz keša
+      appCache.del(CACHE_KEYS.PENDING_REQUESTS);
+
+      // ✅ 2. PRAVILNA INVALIDACIJA: Brišemo sve dinamičke opsege meseci.
+      // Oslobađamo datume na kalendaru za nove goste istog milisekundnog trena!
+      invalidateBookingCache();
+
+      logger.info(
+        { count: updated.count },
+        '✅ Čišćenje završeno — istekli zahtevi prebačeni u EXPIRED i kalendarski keš oslobođen.',
+      );
+    } else {
+      // Koristimo debug nivo da ne bismo zatrpavali produkcione logove svakih sat vremena
+      logger.debug('✅ Čišćenje završeno — nema isteklih zahteva u ovom krugu.');
+    }
+  } catch (error: unknown) {
+    // ─── Graceful handling: Tabela još ne postoji u bazi ─────────────────────
+    // Sprečava pad servera ako cron opali pre nego što CI/CD izvrši migracije
+    const hasErrorCode = error && typeof error === 'object' && 'code' in error;
+    const isTableMissingError = hasErrorCode && (error as { code: string }).code === 'P2021';
+    const isMissingMessage = error instanceof Error && error.message.includes('does not exist');
+
+    if (isTableMissingError || isMissingMessage) {
+      logger.warn(
+        '⚠️ ReservationRequest tabela ne postoji u bazi — preskačem čišćenje do sledeće migracije.',
+      );
+      return;
+    }
+
+    // ─── Sve ostale greške su stvarni infrastrukturni problemi ────────────────
+    const poruka = error instanceof Error ? error.message : 'Nepoznata greška';
+    logger.error({ err: error }, `❌ Kritična greška tokom izvršavanja čišćenja: ${poruka}`);
+  }
+}

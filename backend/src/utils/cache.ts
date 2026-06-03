@@ -25,7 +25,11 @@ export const CACHE_KEYS = {
   // Ključ za listu svih apartmana
   APARTMENTS: 'apartments:all',
   // Dinamički ključ za rezervacije po mesecu/apartmanu
-  BOOKINGS: (month?: string, aptId?: string) => `bookings:${month ?? 'all'}:${aptId ?? 'all'}`,
+  BOOKINGS: (startMonth?: string, endMonth?: string, apartmentId?: string) => {
+    const range = startMonth && endMonth ? `${startMonth}_${endMonth}` : startMonth || 'all';
+    const apt = apartmentId || 'all';
+    return `bookings:${range}:${apt}`;
+  },
   // 📬  Statički ključ za listu i broj zahteva na čekanju
   PENDING_REQUESTS: 'requests:pending:all',
 } as const;
@@ -51,3 +55,13 @@ export function invalidateBookingCache(): void {
     logger.error({ err: cacheErr }, '⚠️ Greška prilikom brisanja keša rezervacija');
   }
 }
+
+// Pomocna funkcija za konfiguraciju bezbednih opcija kolacica
+export const getCookieOptions = () => {
+  const isProduction = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: isProduction, // true samo u produkciji (zahteva HTTPS)
+    sameSite: isProduction ? ('strict' as const) : ('lax' as const),
+  };
+};

@@ -23,7 +23,7 @@ import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { ApiError, MAX_BOOKING_DAYS } from '../../../shared/index';
-import { triggerDebouncedExcelBackup } from '../utils/excelExport';
+import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingCancellation } from '../utils/emailService';
 import { invalidateBookingCache } from '../utils/cache';
 
@@ -150,7 +150,7 @@ export const updateBooking = async (
     res.json({ message: 'Rezervacija je uspešno ažurirana', booking: updatedBooking });
 
     // 📊 Excel backup — fire & forget
-    triggerDebouncedExcelBackup(`Izmenjena rezervacija: ${id}`);
+    runCombinedBackup(`Izmenjena rezervacija: ${id}`);
   } catch (error: unknown) {
     // Obrada specifičnih transakcionih grešaka
     if (error instanceof Error) {
@@ -249,7 +249,7 @@ export const deleteBooking = async (
       );
     });
     // 📊 Excel backup — fire & forget
-    triggerDebouncedExcelBackup(`Otkazana rezervacija: ${safeId}`);
+    runCombinedBackup(`Otkazana rezervacija: ${safeId}`);
   } catch (error: unknown) {
     // Rukovanje greškama usklađeno sa Zod v4 i TypeScript unknown standardom
     if (error instanceof Error) {

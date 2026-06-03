@@ -29,9 +29,14 @@ model User {
 model Apartment {
   id       String    @id @default(cuid())
   name     String    @unique 
-  description String
+  description String? @db.Text
+  isDeleted   Boolean  @default(false)
+  deletedAt   DateTime?
+
   bookings Booking[]
   reservationRequests  ReservationRequest[]        
+
+   @@index([isDeleted])
 }
 
 model Booking {
@@ -39,7 +44,7 @@ model Booking {
   apartmentId String
   guest       String
   email       String
-  phone       String
+  phone       String?
   startDate   DateTime
   endDate     DateTime
   status      BookingStatus @default(CONFIRMED)
@@ -48,6 +53,7 @@ model Booking {
   updatedAt   DateTime      @updatedAt  // DODATI
   @@index([apartmentId])               // DODATI za performanse
   @@index([apartmentId, startDate, endDate])  // Za kalendar pretragu
+  @@index([createdAt(sort: Desc)])
 }
 
 model ReservationRequest {

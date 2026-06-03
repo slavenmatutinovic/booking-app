@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 import { loginSchema } from '../validators/auth.validator';
+import { appCache, getCookieOptions } from '../utils/cache';
 
 // ─── POST /api/auth/login ──────────────────────────────────────────────────────
 export const login = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -79,12 +80,9 @@ export const logout = async (req: Request, res: Response, next: NextFunction): P
     }
   }
 
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: env.NODE_ENV === 'production',
-    sameSite: env.NODE_ENV === 'production' ? 'strict' : 'lax',
-    path: '/',
-  });
+  appCache.del(`user:session:${userId}`); // Čistimo keš za ovog korisnika
+
+  res.clearCookie('token', getCookieOptions());
   res.json({ message: 'Odjavljeni ste' });
 };
 
@@ -94,41 +92,52 @@ export const getMe = async (req: Request, res: Response, next: NextFunction): Pr
   logger.debug({ userId: req.user?.userId }, '👤 GET /api/auth/me');
 
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.user!.userId },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        createdAt: true,
-        tokenVersion: true, // Dodato za proveru verzije
-        // NIKAD: password — hash lozinke ne sme napustiti backend
-      },
-    });
+    // ⚡ KORAK 1: Koristimo brzi sesijski keš koji je requireAuth već napunio.
+    // Time potpuno izbegavamo još jedan težak DB round-trip pri svakom F5 osvežavanju!
+    const cacheKey = `user:session:${req.user!.userId}`;
+    let cachedSession = appCache.get<{
+      tokenVersion: number;
+      role: 'ADMIN' | 'VIEWER';
+      email?: string;
+    }>(cacheKey);
 
-    // Validacija verzije tokena iz baze i iz samog JWT payload-a
-    if (!user || user.tokenVersion !== req.user!.tokenVersion) {
-      logger.warn({ userId: req.user?.userId }, '⚠️ /me — token je nevažeći ili poništen (Logout)');
-      res.clearCookie('token', {
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        path: '/',
+    // Ako iz nekog razloga nema imejla u kešu, uradićemo lagan upit samo za email
+    if (!cachedSession || !cachedSession.email) {
+      const user = await prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { id: true, email: true, role: true, tokenVersion: true },
       });
-      res.status(401).json({ error: 'Sesija je nevažeća, prijavite se ponovo' });
-      return;
+
+      if (!user) {
+        logger.warn({ userId: req.user?.userId }, '⚠️ /me — Korisnik više ne postoji u bazi');
+        appCache.del(cacheKey);
+        res.clearCookie('token', getCookieOptions());
+        res.status(401).json({ error: 'Korisnik više ne postoji.' });
+        return;
+      }
+
+      cachedSession = {
+        tokenVersion: user.tokenVersion,
+        role: user.role as 'ADMIN' | 'VIEWER',
+        email: user.email,
+      };
+
+      // Osvežavamo keš sa imejlom
+      appCache.set(cacheKey, cachedSession, 300);
     }
 
-    logger.debug({ userId: user.id, role: user.role }, '✅ /me — sesija validna');
+    logger.debug({ userId: req.user!.userId, role: req.user!.role }, '✅ /me — sesija validna');
+
+    // ✅ KORAK 2: Vraćamo čiste podatke. Greška 'Property tokenVersion does not exist' je trajno uklonjena
     res.json({
       user: {
-        id: user.id,
-        email: user.email,
-        role: user.role,
+        id: req.user!.userId,
+        email: cachedSession.email,
+        role: req.user!.role,
       },
     });
   } catch (error) {
     logger.error({ err: error }, '❌ getMe — neočekivana greška');
-    next(error); // ← Prosleđuje grešku globalnom handleru
+    next(error);
   }
 };

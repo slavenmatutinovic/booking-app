@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 import { prisma } from '../config/prisma';
-import { triggerDebouncedExcelBackup } from '../utils/excelExport';
+import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingConfirmation } from '../utils/emailService';
 import { invalidateBookingCache } from '../utils/cache';
 
@@ -134,7 +134,7 @@ export const createBooking = async (
     });
 
     // 📊 Excel backup — fire & forget, ne blokira odgovor
-    triggerDebouncedExcelBackup(
+    runCombinedBackup(
       requestId
         ? `Odobrena rezervacija (request: ${requestId})`
         : `Kreirana rezervacija: ${booking.id}`,

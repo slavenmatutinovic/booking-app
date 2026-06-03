@@ -89,7 +89,7 @@ export const getApartments = async (
     res.json({ apartments });
   } catch (error) {
     logger.error({ err: error }, '❌ getApartments — greška u bazi');
-    console.error('Error in getApartments:', error); // Dodatni log za debagovanje
+
     next(error);
   }
 };
@@ -125,38 +125,60 @@ export const getApartmentById = async (
     return;
   }
 
+  // ⚡ Jedinstveni ključ za keširanje ovog specifičnog apartmana sa svim sirovim podacima
+  const cacheKey = `apartment:${safeId}`;
+
   try {
-    const apartment = await prisma.apartment.findUnique({
-      where: { id: safeId },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        bookings: {
-          where: { status: 'CONFIRMED' }, // Ne vraćamo otkazane rezervacije
-          orderBy: { startDate: 'asc' },
-          select: {
-            id: true,
-            startDate: true,
-            endDate: true,
-            guest: true,
-            // Ne vraćamo email/phone u javnom endpointu (privatnost gostiju)
-          },
-        },
-      },
-    });
+    // 🔍 KORAK 1: Pokušaj čitanja iz brze memorije (Cache HIT)
+    let apartment = appCache.get<any>(cacheKey);
 
     if (!apartment) {
-      res.status(404).json({ error: 'Apartman nije pronađen.' });
-      return;
+      // 💾 KORAK 2: Cache MISS — Idemo u bazu podataka po sirove (nesanitizovane) podatke
+      // Povlačimo i 'guest' polje kako bi ga keš sačuvao za admina, a filtriraćemo ga naknadno dole
+      apartment = await prisma.apartment.findUnique({
+        where: { id: safeId },
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          bookings: {
+            where: { status: 'CONFIRMED' }, // Ne vraćamo otkazane rezervacije
+            orderBy: { startDate: 'asc' },
+            select: {
+              id: true,
+              startDate: true,
+              endDate: true,
+              guest: true, // Povlačimo u keš, ali maskiramo pre slanja javnim korisnicima
+            },
+          },
+        },
+      });
+
+      if (!apartment) {
+        res.status(404).json({ error: 'Apartman nije pronađen.' });
+        return;
+      }
+
+      // Upisujemo pun, originalan objekat iz baze u keš na 30 minuta (1800s)
+      appCache.set(cacheKey, apartment, 1800);
+      logger.debug({ cacheKey }, '💾 Cache MISS — Podaci o apartmanu uspešno keširani');
+    } else {
+      logger.debug({ cacheKey }, '⚡ Cache HIT — Vraćam podatke o apartmanu iz memorije');
     }
-    // 2. Read the active user permissions from optionalAuth middleware properties
+
+    // 🛡️ KORAK 3: Read the active user permissions from optionalAuth middleware properties
     const userRole = req.user?.role; // e.g., 'ADMIN', 'VIEWER', or undefined
     const hasPrivilegedAccess = userRole === 'ADMIN' || userRole === 'VIEWER';
 
-    // 3. If the user is unauthenticated, mask all private data before sending
+    // Pravimo plitku kopiju keširanog objekta da ne bismo slučajno izmenili sam keš u memoriji servera
+    const apartmentResponse = {
+      ...apartment,
+      bookings: [...apartment.bookings],
+    };
+
+    // 🔒 KORAK 4: If the user is unauthenticated, mask all private data before sending
     if (!hasPrivilegedAccess) {
-      const sanitizedBookings = apartment.bookings.map((b) => ({
+      const sanitizedBookings = apartmentResponse.bookings.map((b: any) => ({
         id: b.id,
         apartmentId: safeId,
         startDate: b.startDate,
@@ -169,14 +191,16 @@ export const getApartmentById = async (
       }));
 
       // Override the original array structure with the clean data footprint
-      (apartment as any).bookings = sanitizedBookings;
+      apartmentResponse.bookings = sanitizedBookings;
     }
 
-    logger.info({ apartmentId: safeId }, '✅ getApartmentById — pronađen');
-    res.json({ apartment });
+    logger.info({ apartmentId: safeId }, '✅ getApartmentById — pronađen i isporučen');
+
+    // Vraćamo tačan format koji tvoj frontend kalendar očekuje: { apartment: { ... } }
+    res.json({ apartment: apartmentResponse });
   } catch (error) {
     logger.error({ err: error, apartmentId: safeId }, '❌ getApartmentById — greška u bazi');
-    console.error('Error in getApartmentById:', error); // Dodatni log za debagovanje
+
     next(error);
   }
 };
@@ -327,7 +351,13 @@ export const deleteApartment = async (
   }
 
   try {
-    await prisma.apartment.delete({ where: { id: safeId } });
+    await prisma.apartment.update({
+      where: { id: safeId },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+      },
+    });
 
     logger.info({ apartmentId: safeId, adminId: req.user?.userId }, '✅ Apartman obrisan');
     res.json({ message: 'Apartman je uspešno obrisan.' });

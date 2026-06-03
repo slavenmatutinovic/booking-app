@@ -97,6 +97,13 @@ export function useCalendarData({
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // 🔒 REŠENJE: Računamo tačan opseg vidljivih meseci na ekranu
+  // Iz niza 'days' uzimamo prvi i poslednji dan koji admin vidi na kalendaru
+  const firstVisibleDay = days[0] || startDate;
+  const lastVisibleDay = days[days.length - 1] || addDays(startDate, 35);
+
+  const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
+  const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
   // ── Fetch pri montiravanju ─────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -105,14 +112,6 @@ export function useCalendarData({
       try {
         setLoading(true);
         setError(null);
-
-        // 🔒 REŠENJE: Računamo tačan opseg vidljivih meseci na ekranu
-        // Iz niza 'days' uzimamo prvi i poslednji dan koji admin vidi na kalendaru
-        const firstVisibleDay = days[0] || startDate;
-        const lastVisibleDay = days[days.length - 1] || addDays(startDate, 35);
-
-        const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
-        const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
 
         const [aptData, firstPageEnvelope] = await Promise.all([
           getApartments(),
@@ -188,7 +187,7 @@ export function useCalendarData({
     return () => {
       cancelled = true;
     };
-  }, [startDate, days]);
+  }, [startMonthStr, endMonthStr]);
 
   // ── Memoizovane kalkulacije ────────────────────────────────────────────────
 
@@ -347,7 +346,7 @@ export function useCalendarData({
     try {
       await executeLogout();
     } catch (err) {
-      console.error('Greška pri odjavi:', err);
+      remoteLogger({ level: 'error', message: 'Neuspešno odjavljivanje', errorDetails: { err } });
     } finally {
       onLogout();
     }

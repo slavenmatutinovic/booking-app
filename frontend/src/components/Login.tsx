@@ -33,7 +33,7 @@ export default function Login({ onLoginSuccess }: LoginProps) {
 
     try {
       const data = await loginUser(email, password); // Umesto direktnog apiFetch
-      console.log('Uspešna prijava:', data.user);
+
       remoteLogger({
         level: 'info',
         message: 'Uspešan pokušaj prijave na sistem',

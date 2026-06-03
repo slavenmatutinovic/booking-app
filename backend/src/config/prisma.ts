@@ -52,12 +52,8 @@ if (!globalForPrisma.prisma) {
     process.exit(0);
   });
 } else {
-  // Ako globalForPrisma.prisma nije definisan (ne bi trebalo da se desi),
-  // ovo je zaštitna mera koja sprečava runtime TypeError
-  if (!globalForPrisma.prisma) {
-    throw new Error('Prisma singleton nije inicijalizovan — ovo je neočekivano stanje.');
-  }
   prismaInstance = globalForPrisma.prisma;
+  logger.debug('⚡ Koristim postojeću (keširanu) PrismaClient instancu iz globalnog singleton-a.');
 }
 
 // 3. Export the functional singleton instance

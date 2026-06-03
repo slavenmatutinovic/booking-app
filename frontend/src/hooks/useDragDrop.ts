@@ -1,6 +1,7 @@
 // frontend/src/hooks/useDragDrop.ts
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { DraggingState, FrontendBooking } from '../types/ui';
+import { remoteLogger } from '../utils/remoteLogger';
 
 interface UseDragDropProps {
   canEdit: boolean;
@@ -101,14 +102,14 @@ export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDra
           break;
         }
       }
-
-      console.log('[DRAG DIAGNOSTICS - OVERLAP CHECK]', {
-        daysShifted,
-        calculatedValid: isValid,
-        targetStart: newStartStr,
-        targetEnd: newEndStr,
-      });
-
+      if (import.meta.env.DEV) {
+        console.log('[DRAG DIAGNOSTICS - OVERLAP CHECK]', {
+          daysShifted,
+          calculatedValid: isValid,
+          targetStart: newStartStr,
+          targetEnd: newEndStr,
+        });
+      }
       if (daysShifted !== curStatus.shift || isValid !== curStatus.valid) {
         setDragStatus({
           shift: daysShifted,
@@ -146,7 +147,11 @@ export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDra
         try {
           await onBookingUpdate(curDrag.bookingId, payload);
         } catch (err) {
-          console.error('Greška tokom drag-and-drop snimanja:', err);
+          remoteLogger({
+            level: 'error',
+            message: '❌ updateApartment — greška pri upisu',
+            errorDetails: { err },
+          });
         }
       }
     };
