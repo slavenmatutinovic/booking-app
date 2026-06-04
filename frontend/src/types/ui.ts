@@ -53,6 +53,9 @@ export interface DraggingState {
   /** Originalni datumi za rollback ako drag završi u konfliktu */
   originalStart: Date;
   originalEnd: Date;
+  currentStartStr: string; // Format: "YYYY-MM-DD"
+  currentEndStr: string; // Format: "YYYY-MM-DD"
+  currentLivePrice: number;
 }
 
 // =============================================================================

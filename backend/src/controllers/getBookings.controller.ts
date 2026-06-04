@@ -16,7 +16,12 @@ export const getBookings = async (
   const month = req.query.month as string | undefined;
   const apartmentId = req.query.apartmentId as string | undefined;
 
-  const where: Prisma.BookingWhereInput = { status: 'CONFIRMED' };
+  const where: Prisma.BookingWhereInput = {
+    status: 'CONFIRMED',
+    apartment: {
+      isDeleted: false, // 🛡️ Critical: Cascades soft-delete enforcement to nested relational hooks
+    },
+  };
 
   if (apartmentId) {
     where.apartmentId = String(apartmentId);

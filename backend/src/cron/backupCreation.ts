@@ -18,7 +18,14 @@ const BACKUP_DIR = path.join(__dirname, '../../backups');
  */
 async function generateJsonData(): Promise<string> {
   const [users, apartments, bookings, requests] = await Promise.all([
-    prisma.user.findMany(),
+    prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
+    }),
     prisma.apartment.findMany(),
     prisma.booking.findMany(),
     prisma.reservationRequest.findMany(),

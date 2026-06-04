@@ -1,8 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
-import { createApartmentRateSchema } from '../validators/rate.validator';
+import { createApartmentRateSchema } from '../validators/apartment.validator';
 import { logger } from '../utils/logger';
-import { appCache } from '../utils/cache';
+import { appCache, CACHE_KEYS } from '../utils/cache';
+import { Prisma } from '@prisma/client';
 
 /**
  * 💰 POST /api/apartments/rates
@@ -16,7 +17,7 @@ export const createApartmentRate = async (
   logger.info({ adminId: req.user?.userId }, '💰 Pokušaj unosa novog sezonskog cenovnika');
 
   try {
-    // 1. Validate raw incoming payload metrics using Zod
+    // 🛡️ Prolazimo ceo req objekat kroz šemu
     const validation = createApartmentRateSchema.safeParse(req.body);
     if (!validation.success) {
       res.status(400).json({
@@ -26,7 +27,7 @@ export const createApartmentRate = async (
       return;
     }
 
-    const { apartmentId, startDate, endDate, price } = validation.data;
+    const { apartmentId, startDate, endDate, price } = validation.data.body;
 
     // 2. 🛡️ COLLISION INSPECTION LOOKUP:
     // Check if another configured rate block already maps over any slice of the chosen window
@@ -69,8 +70,155 @@ export const createApartmentRate = async (
       message: 'Sezonski cenovnik uspešno kreiran.',
       rate: newRate,
     });
+
+    // 🛡️ Čišćenje keša nakon brisanja cene
+    appCache.del(`apartment_rates:${apartmentId}`);
+    appCache.del(CACHE_KEYS.APARTMENTS); // Čisti globalnu listu za kalendar
   } catch (error) {
     logger.error({ err: error }, '❌ Greška unutar createApartmentRate kontrolera');
+    next(error);
+  }
+};
+
+export const deleteApartmentRate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const id = String(req.params.id);
+
+  if (!id || id === 'undefined') {
+    res.status(400).json({ error: 'Nije prosleđen validan ID sezonske cene.' });
+    return;
+  }
+
+  try {
+    // 1. Pronađi zapis da uzmemo apartmentId pre nego što ga obrišemo
+    const rate = await prisma.apartmentRate.findUnique({
+      where: { id },
+      select: { apartmentId: true },
+    });
+
+    if (!rate) {
+      res.status(404).json({ error: 'Sezonska cena nije pronađena.' });
+      return;
+    }
+
+    // 2. Trajno brisanje iz PostgreSQL baze
+    await prisma.apartmentRate.delete({
+      where: { id },
+    });
+
+    // 3. 🛡️ SELEKTIVNA INVALIDACIJA KEŠA: Izbacujemo snapshot tog apartmana iz RAM-a
+    appCache.del(`apartment:${rate.apartmentId}`);
+    // Takođe invalidiramo opštu listu apartmana za kalendar kako bi povukao sveže cene
+    appCache.del(CACHE_KEYS.APARTMENTS);
+
+    logger.info({ rateId: id, apartmentId: rate.apartmentId }, '🗑️ Sezonska cena uspešno obrisana');
+    res.json({ message: 'Sezonska cena je uspešno obrisana.' });
+  } catch (error) {
+    logger.error({ err: error, rateId: id }, '❌ Greška unutar deleteApartmentRate kontrolera');
+    next(error);
+  }
+};
+
+export const updateApartmentRate = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  // Sigurno kastujemo ID iz parametara i cenu iz body-ja nakon Zod validacije
+  const id = String(req.params.id);
+  const { price } = req.body;
+
+  try {
+    // 1. Ažuriramo cenu u bazi i odmah izvlačimo apartmentId za keš
+    const updatedRate = await prisma.apartmentRate.update({
+      where: { id },
+      data: { price },
+      select: { apartmentId: true, price: true },
+    });
+
+    // 2. 🛡️ INVALIDACIJA KEŠA: Čistimo memoriju za taj apartman i globalnu listu
+    appCache.del(`apartment:${updatedRate.apartmentId}`);
+    appCache.del(CACHE_KEYS.APARTMENTS);
+
+    logger.info(
+      { rateId: id, apartmentId: updatedRate.apartmentId, newPrice: updatedRate.price },
+      '✏️ Sezonska cena uspešno izmenjena',
+    );
+
+    res.json({
+      message: 'Sezonska cena uspešno izmenjena.',
+      rate: updatedRate,
+    });
+  } catch (error) {
+    logger.error({ err: error, rateId: id }, '❌ Greška unutar updateApartmentRate kontrolera');
+
+    // Ako zapis ne postoji u bazi (Prisma kod P2025)
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      res.status(404).json({ error: 'Sezonska cena nije pronađena.' });
+      return;
+    }
+
+    next(error);
+  }
+};
+
+export const getApartmentRates = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  const apartmentId = String(req.params.id);
+
+  if (!apartmentId || apartmentId === 'undefined') {
+    res.status(400).json({ error: 'Nije prosleđen validan ID apartmana.' });
+    return;
+  }
+
+  try {
+    // 1. Provera memorijskog keša za ovaj specifičan apartman
+    const cacheKey = `apartment_rates:${apartmentId}`;
+    const cachedRates = appCache.get(cacheKey);
+    if (cachedRates) {
+      res.json({ rates: cachedRates });
+      return;
+    }
+
+    // 2. Provera da li apartman uopšte postoji i da nije soft-deleted
+    const apartmentExists = await prisma.apartment.findFirst({
+      where: { id: apartmentId, isDeleted: false },
+    });
+
+    if (!apartmentExists) {
+      res.status(404).json({ error: 'Apartman nije pronađen ili je obrisan.' });
+      return;
+    }
+
+    // 3. Povlačenje svih cena sortiranih hronološki po datumu početka
+    const rates = await prisma.apartmentRate.findMany({
+      where: { apartmentId },
+      orderBy: { startDate: 'asc' },
+      select: {
+        id: true,
+        apartmentId: true,
+        startDate: true,
+        endDate: true,
+        price: true,
+      },
+    });
+
+    // 4. Upis u keš na 1 sat (3600 sekundi)
+    appCache.set(cacheKey, rates, 3600);
+
+    logger.info(
+      { apartmentId, count: rates.length },
+      '🔍 getApartmentRates – cene uspešno učitane',
+    );
+    res.json({ rates });
+  } catch (error) {
+    logger.error({ err: error, apartmentId }, '❌ Greška unutar getApartmentRates kontrolera');
     next(error);
   }
 };

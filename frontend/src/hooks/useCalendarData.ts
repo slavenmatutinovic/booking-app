@@ -104,11 +104,9 @@ export function useCalendarData({
 
   const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
   const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
-  // ── Fetch pri montiravanju ─────────────────────────────────────────────────
-  useEffect(() => {
-    let cancelled = false;
 
-    (async () => {
+  const refreshCalendarData = useCallback(
+    async (cancelledRef: { current: boolean }): Promise<void> => {
       try {
         setLoading(true);
         setError(null);
@@ -117,48 +115,35 @@ export function useCalendarData({
           getApartments(),
           getBookings({ startMonth: startMonthStr, endMonth: endMonthStr, cursor: undefined }),
         ]);
-        if (cancelled) return;
+        if (cancelledRef.current) return;
 
-        // 🚀 KORAK 1: Sortiramo rezervacije hronološki prema datumu početka
-        // Ovo garantuje da rezervacije unutar svakog apartmana idu redom po vremenskoj liniji
         let rawBookings = firstPageEnvelope?.bookings || [];
         let nextCursor = firstPageEnvelope?.nextCursor;
 
-        // 🟢 POBOLJŠANJE-02: Automatski lančani fetch u pozadini ako postoji sledeća stranica
-        // Petlja se izvršava sve dok backend vraća nextCursor token za sledeći set podataka
-        while (nextCursor && !cancelled) {
-          console.log(`[PAGINATION ENGINE] Učitavam sledeću stranicu sa cursorom: ${nextCursor}`);
-
+        // Paginacioni krug za povlačenje svih stranica rezervacija
+        while (nextCursor && !cancelledRef.current) {
           const nextPageEnvelope = await getBookings({
             startMonth: startMonthStr,
             endMonth: endMonthStr,
-            cursor: nextCursor, // Prosleđujemo dobijeni kursor unazad na server
+            cursor: nextCursor,
           });
 
           if (nextPageEnvelope?.bookings) {
-            // Spajamo novu stranicu sa prethodno nakupljenim rezervacijama
             rawBookings = [...rawBookings, ...nextPageEnvelope.bookings];
           }
-
-          // Pomeramo token pokazivača na sledeću poziciju
           nextCursor = nextPageEnvelope?.nextCursor;
         }
 
-        if (cancelled) return;
+        if (cancelledRef.current) return;
 
         const sortedRawBookings = [...(rawBookings as ApiBooking[])].sort(
           (a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
         );
 
-        // 🚀 KORAK 2: Pravimo brojač boja za SVAKI apartman pojedinačno
-        // Ključ: apartmentId -> Vrednost: trenutni indeks boje iz PALETTE niza
         const apartmentColorCounters = new Map<string, number>();
 
         const formattedBookings: FrontendBooking[] = sortedRawBookings.map((b) => {
-          // Čitamo trenutni indeks boje za ovaj specifičan apartman (ako nema unosa, krećemo od 0)
           const currentColorIdx = apartmentColorCounters.get(b.apartmentId) ?? 0;
-
-          // Pomeramo brojač za 1 unapred za sledeću rezervaciju u ovom istom apartmanu
           apartmentColorCounters.set(b.apartmentId, currentColorIdx + 1);
 
           return {
@@ -169,8 +154,6 @@ export function useCalendarData({
             guest: b.guest || 'Gost',
             email: b.email,
             phone: b.phone,
-            // 🚀 REŠENJE: Svaka naredna traka u istom apartmanu uzima sledeću boju iz palete.
-            // Pošto idu u krug ciklično, uzastopne rezervacije NIKADA neće imati istu boju!
             color: PALETTE[currentColorIdx % PALETTE.length],
           };
         });
@@ -178,16 +161,30 @@ export function useCalendarData({
         setApartments(aptData ?? []);
         setBookings(formattedBookings);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Greška pri učitavanju');
+        if (!cancelledRef.current) {
+          setError(err instanceof Error ? err.message : 'Greška pri učitavanju');
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelledRef.current) setLoading(false);
       }
-    })();
+      // ✅ DODATE SVE ZAVISNOSTI: Sve funkcije i promenljive koje kôd koristi unutra
+    },
+    [startMonthStr, endMonthStr, setLoading, setError, setApartments, setBookings],
+  );
+  // ── Fetch pri montiravanju ─────────────────────────────────────────────────
+  useEffect(() => {
+    const status = { current: false };
+
+    Promise.resolve().then(() => {
+      if (!status.current) {
+        refreshCalendarData(status);
+      }
+    });
 
     return () => {
-      cancelled = true;
+      status.current = true;
     };
-  }, [startMonthStr, endMonthStr]);
+  }, [refreshCalendarData]);
 
   // ── Memoizovane kalkulacije ────────────────────────────────────────────────
 

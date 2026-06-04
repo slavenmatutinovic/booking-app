@@ -100,6 +100,13 @@ app.use(
     origin: (origin, callback) => {
       // Ako zahtev nema origin (npr. serverski cron poslovi, Postman ili interni testovi), dozvoljavamo pristup
       if (!origin) {
+        if (env.NODE_ENV === 'production') {
+          // 🛡️ Block anonymous non-browser requests from hitting production routes
+          logger.warn('🚫 CORS Blocked: Request missing Origin header in production environment.');
+          callback(new Error('CORS Policy: Origin header required.'));
+          return;
+        }
+        // Allow for local backend API testing via Postman during development
         callback(null, true);
         return;
       }

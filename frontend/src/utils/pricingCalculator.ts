@@ -1,3 +1,4 @@
+// frontend/src/utils/priceEngine.ts
 import { addDays, differenceInDays } from 'date-fns';
 import { ApartmentRateData } from '../../../shared/index';
 
@@ -11,6 +12,8 @@ export interface ClientPriceCalculationResult {
   totalNights: number;
   averagePricePerNight: number;
   breakdown: DayBreakdownItem[];
+  /** 🆕 Flag to alert the UI if any night of the stay lacks a configured rate */
+  hasUnconfiguredDays: boolean;
 }
 
 /**
@@ -21,7 +24,6 @@ export function calculateClientDynamicPrice(
   startDateStr: string | Date,
   endDateStr: string | Date,
   activeRatesList: ApartmentRateData[],
-  defaultFallbackPrice = 50.0,
 ): ClientPriceCalculationResult {
   const startJsDate = new Date(startDateStr);
   const endJsDate = new Date(endDateStr);
@@ -29,24 +31,27 @@ export function calculateClientDynamicPrice(
   const totalNights = differenceInDays(endJsDate, startJsDate);
 
   let totalAccumulatedPrice = 0;
+  let hasUnconfiguredDays = false;
   const breakdown: DayBreakdownItem[] = [];
   let trackingDay = new Date(startJsDate);
 
-  // Loop day-by-day through every single night of the selected interval
   for (let i = 0; i < totalNights; i++) {
     const formattedIsoKey = trackingDay.toISOString().split('T')[0];
 
-    // Check if the current tracking day falls inside a specific custom season configuration
+    // Find the explicit seasonal block wrapping this specific calendar night
     const matchingSeasonalRate = activeRatesList.find((rate) => {
       const rateStart = new Date(rate.startDate);
       const rateEnd = new Date(rate.endDate);
       return trackingDay >= rateStart && trackingDay <= rateEnd;
     });
 
-    // Use the custom seasonal rate if found; otherwise, fall back to the default property fee
-    const applicableNightlyPrice = matchingSeasonalRate
-      ? Number(matchingSeasonalRate.price)
-      : defaultFallbackPrice;
+    // 🛡️ NO FALLBACK PROTECTION: If unconfigured, the day costs 0 and sets the warning flag
+    let applicableNightlyPrice = 0;
+    if (matchingSeasonalRate) {
+      applicableNightlyPrice = Number(matchingSeasonalRate.price);
+    } else {
+      hasUnconfiguredDays = true;
+    }
 
     totalAccumulatedPrice += applicableNightlyPrice;
     breakdown.push({
@@ -54,7 +59,6 @@ export function calculateClientDynamicPrice(
       price: applicableNightlyPrice,
     });
 
-    // Step forward by exactly one calendar day frame
     trackingDay = addDays(trackingDay, 1);
   }
 
@@ -63,5 +67,6 @@ export function calculateClientDynamicPrice(
     totalNights: totalNights > 0 ? totalNights : 0,
     averagePricePerNight: totalNights > 0 ? totalAccumulatedPrice / totalNights : 0,
     breakdown,
+    hasUnconfiguredDays,
   };
 }

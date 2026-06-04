@@ -1,16 +1,15 @@
-// backend/src/validators/booking.validator.ts
+// backend/src/validators/booking.validator.ts (DEO 1)
 import { z } from 'zod';
 import { MAX_BOOKING_DAYS } from '../../../shared/index';
 
 // Regex koji prihvata validan ISO 8601 UTC datetime string
-// Primeri: 2026-06-01T00:00:00.000Z  ili  2026-06-01T12:30:00Z
 const isoDatetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
 
 function isoDatetime(errorMsg: string) {
   return z
-    .string()
-    .regex(isoDatetimeRegex, errorMsg)
-    .transform((s) => new Date(s));
+    .string({ message: errorMsg })
+    .regex(isoDatetimeRegex, { message: errorMsg })
+    .transform((s: string) => new Date(s));
 }
 
 const getStartOfToday = (): Date => {
@@ -21,25 +20,24 @@ const getStartOfToday = (): Date => {
 
 export const createBookingSchema = z
   .object({
-    apartmentId: z
-      .string({ error: 'ID apartmana je obavezan i mora biti tekst' })
-      .min(1, { error: 'ID apartmana je obavezan' }),
+    // ✅ ISPRAVNO ZA v4: Koristimo top-level z.uuid() za ID apartmana
+    apartmentId: z.uuid({ message: 'ID apartmana mora biti u validnom UUID formatu.' }),
 
     guest: z
-      .string({ error: 'Ime gosta je obavezno i mora biti tekst' })
-      .min(2, { error: 'Ime gosta mora imati najmanje 2 karaktera' })
-      .max(100, { error: 'Ime gosta je predugačko' })
-      .transform((s) => s.trim()), // ← Sanitizacija: ukloni whitespace
+      .string({ message: 'Ime gosta mora biti tekst.' })
+      .min(2, { message: 'Ime gosta mora imati najmanje 2 karaktera.' })
+      .max(100, { message: 'Ime gosta je predugačko.' })
+      .transform((s: string) => s.trim()),
 
+    // ✅ ISPRAVNO ZA v4: Uklonjen nepostojeći .check() i spojen lanac u z.email()
     email: z
-      .string({ error: 'Email adresa je obavezna' })
-      .check(z.email({ error: 'Neispravan format email adrese' }))
-      .max(255, { error: 'Email je predugačak' })
-      .transform((s) => s.trim().toLowerCase()), // ← Normalizacija
+      .email({ message: 'Neispravan format email adrese.' })
+      .max(255, { message: 'Email je predugačak.' })
+      .transform((s: string) => s.trim().toLowerCase()),
 
     phone: z
-      .string({ error: 'Broj telefona mora biti tekst' })
-      .max(30, { error: 'Broj telefona je predugačak' })
+      .string({ message: 'Broj telefona mora biti tekst.' })
+      .max(30, { message: 'Broj telefona je predugačak.' })
       .optional()
       .nullable()
       .default(''),
@@ -47,18 +45,18 @@ export const createBookingSchema = z
     startDate: isoDatetime(
       'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
     ).refine(
-      (date) => {
+      (date: Date) => {
         const absolutePastThreshold = getStartOfToday();
         absolutePastThreshold.setHours(absolutePastThreshold.getHours() - 12);
         return date >= absolutePastThreshold;
       },
-      { message: 'Početni datum ne može biti u prošlosti' },
+      { message: 'Početni datum ne može biti u prošlosti.' },
     ),
 
-    endDate: isoDatetime('endDate mora biti validan ISO 8601 string'),
+    endDate: isoDatetime('endDate mora biti validan ISO 8601 string.'),
   })
   .refine((data) => data.endDate > data.startDate, {
-    message: 'Datum odlaska mora biti posle datuma dolaska',
+    message: 'Datum odlaska mora biti posle datuma dolaska.',
     path: ['endDate'],
   })
   .refine(
@@ -68,31 +66,34 @@ export const createBookingSchema = z
       return diffDays <= MAX_BOOKING_DAYS;
     },
     {
-      message: `Rezervacija ne može trajati duže od ${MAX_BOOKING_DAYS} dana`,
+      message: `Rezervacija ne može trajati duže od ${MAX_BOOKING_DAYS} dana.`,
       path: ['endDate'],
     },
   );
 
+// backend/src/validators/booking.validator.ts (DEO 2)
+
 export const updateBookingSchema = z
   .object({
-    apartmentId: z.string({ message: 'Nevažeći ID apartmana.' }).optional(),
+    apartmentId: z.uuid({ message: 'Nevažeći ID apartmana.' }).optional(),
+
     guest: z
-      .string({ message: 'Ime gosta mora biti tekst' })
-      .min(2, { error: 'Ime gosta mora imati najmanje 2 karaktera' })
-      .max(100, { error: 'Ime gosta je predugačko' })
-      .transform((s) => s.trim()) // ← Sanitizacija: ukloni whitespace
+      .string({ message: 'Ime gosta mora biti tekst.' })
+      .min(2, { message: 'Ime gosta mora imati najmanje 2 karaktera.' })
+      .max(100, { message: 'Ime gosta je predugačko.' })
+      .transform((s: string) => s.trim())
       .optional(),
 
+    // ✅ ISPRAVNO ZA v4: Zamenjen stari .check() sa čistim z.email()
     email: z
-      .string({ error: 'Email mora biti tekst' })
-      .check(z.email({ error: 'Neispravan format email adrese' }))
-      .max(255, { error: 'Email je predugačak' })
-      .transform((s) => s.trim().toLowerCase()) // ← Normalizacija
+      .email({ message: 'Neispravan format email adrese.' })
+      .max(255, { message: 'Email je predugačak.' })
+      .transform((s: string) => s.trim().toLowerCase())
       .optional(),
 
     phone: z
-      .string({ error: 'Broj telefona mora biti tekst' })
-      .max(30, { error: 'Broj telefona je predugačak' })
+      .string({ message: 'Broj telefona mora biti tekst.' })
+      .max(30, { message: 'Broj telefona je predugačak.' })
       .nullable()
       .optional(),
 
@@ -106,7 +107,7 @@ export const updateBookingSchema = z
 
     status: z
       .enum(['CONFIRMED', 'CANCELLED'], {
-        error: 'Status može biti samo CONFIRMED ili CANCELLED',
+        message: 'Status može biti samo CONFIRMED ili CANCELLED.',
       })
       .optional(),
   })
@@ -117,7 +118,7 @@ export const updateBookingSchema = z
       }
       return true;
     },
-    { error: 'Datum odlaska mora biti posle datuma dolaska', path: ['endDate'] },
+    { message: 'Datum odlaska mora biti posle datuma dolaska.', path: ['endDate'] },
   )
   .refine(
     (data) => {
@@ -128,57 +129,42 @@ export const updateBookingSchema = z
       }
       return true;
     },
-    { error: `Rezervacija ne može trajati duže od ${MAX_BOOKING_DAYS} dana`, path: ['endDate'] },
+    { message: `Rezervacija ne može trajati duže od ${MAX_BOOKING_DAYS} dana.`, path: ['endDate'] },
   );
 
-/**
- * Šema za zahtev gosta (javni endpoint POST /api/bookings/requests).
- *
- * Razlike od createBookingSchema:
- *   - Nema provere da startDate nije u prošlosti (admin može pregledati stare zahteve)
- *   - Striktna sanitizacija guest i email polja zbog XSS rizika
- *   - Blago opušteniji limit na dužinu (gosti ne znaju za limit od 2 karaktera)
- */
 export const createGuestRequestSchema = z
   .object({
-    apartmentId: z
-      .string({ error: 'ID apartmana je obavezan' })
-      .min(1, { error: 'ID apartmana je obavezan' }),
+    apartmentId: z.uuid({ message: 'ID apartmana je obavezan i mora biti validan.' }),
 
     guest: z
-      .string({ error: 'Ime je obavezno' })
-      .min(2, { error: 'Ime mora imati najmanje 2 karaktera' })
-      .max(100, { error: 'Ime je predugačko (max 100 karaktera)' })
-      .transform((s) => s.trim()), // ← Sanitizacija: ukloni whitespace
+      .string({ message: 'Ime je obavezno.' })
+      .min(2, { message: 'Ime mora imati najmanje 2 karaktera.' })
+      .max(100, { message: 'Ime je predugačko (max 100 karaktera).' })
+      .transform((s: string) => s.trim()),
 
     email: z
-      .string({ error: 'Email adresa je obavezna' })
-      .check(z.email({ error: 'Neispravan format email adrese' }))
-      .max(255, { error: 'Email je predugačak' })
-      .transform((s) => s.trim().toLowerCase()), // ← Normalizacija
+      .email({ message: 'Neispravan format email adrese.' })
+      .max(255, { message: 'Email je predugačak.' })
+      .transform((s: string) => s.trim().toLowerCase()),
 
     phone: z
       .string()
-      .max(30, { error: 'Broj telefona je predugačak' })
+      .max(30, { message: 'Broj telefona je predugačak.' })
       .optional()
       .nullable()
-      .transform((s) => s?.trim() || ''),
+      .transform((s: string | null | undefined) => s?.trim() || ''),
 
     startDate: z
-      .string()
-      .transform((str) => new Date(str))
-      .refine(
-        (date) => {
-          // 🟢 Guests cannot select yesterday under any timezone shift
-          return date >= getStartOfToday();
-        },
-        { message: 'Datum početka ne može biti u prošlosti.' },
-      ),
+      .string({ message: 'Datum početka je obavezan.' })
+      .transform((str: string) => new Date(str))
+      .refine((date: Date) => date >= getStartOfToday(), {
+        message: 'Datum početka ne može biti in the past.',
+      }),
 
-    endDate: isoDatetime('endDate mora biti ISO 8601 string'),
+    endDate: isoDatetime('endDate mora biti ISO 8601 string.'),
   })
   .refine((data) => data.endDate > data.startDate, {
-    error: 'Datum odlaska mora biti posle datuma dolaska',
+    message: 'Datum odlaska mora biti posle datuma dolaska.',
     path: ['endDate'],
   })
   .refine(
@@ -187,10 +173,9 @@ export const createGuestRequestSchema = z
       const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
       return diffDays <= MAX_BOOKING_DAYS;
     },
-    { error: `Zahtev ne može biti duži od ${MAX_BOOKING_DAYS} dana`, path: ['endDate'] },
+    { message: `Zahtev ne može biti duži od ${MAX_BOOKING_DAYS} dana.`, path: ['endDate'] },
   );
 
-// Eksportovani tipovi za upotrebu u kontrolerima (TypeScript inference)
 export type CreateBookingInput = z.infer<typeof createBookingSchema>;
 export type UpdateBookingInput = z.infer<typeof updateBookingSchema>;
 export type CreateGuestRequestInput = z.infer<typeof createGuestRequestSchema>;

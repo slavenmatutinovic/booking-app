@@ -73,11 +73,24 @@ export const getApartments = async (
 
     // 2. Ako nema u kešu, čitaj iz baze
     const apartments = await prisma.apartment.findMany({
+      where: {
+        isDeleted: false, // Soft-delete safe guard filter
+      },
       orderBy: { name: 'asc' },
       select: {
         id: true,
         name: true,
         description: true,
+        rates: {
+          select: {
+            id: true,
+            apartmentId: true,
+            startDate: true,
+            endDate: true,
+            price: true,
+          },
+          orderBy: { startDate: 'asc' },
+        },
       },
     });
 

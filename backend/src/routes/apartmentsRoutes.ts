@@ -30,9 +30,18 @@ import {
 } from '../controllers/apartments.controller';
 import { requireAuth, requireAdmin } from '../middleware/authMiddleware';
 import { validateBody } from '../middleware/validateMiddleware';
-import { createApartmentSchema, updateApartmentSchema } from '../validators/apartment.validator';
-import { createApartmentRate } from '../controllers/rates.controller';
-import { createApartmentRateSchema } from '../validators/rate.validator';
+import {
+  createApartmentSchema,
+  updateApartmentSchema,
+  createApartmentRateSchema,
+  updateApartmentRateSchema,
+} from '../validators/apartment.validator';
+import {
+  createApartmentRate,
+  deleteApartmentRate,
+  getApartmentRates,
+  updateApartmentRate,
+} from '../controllers/rates.controller';
 
 const router = Router();
 
@@ -69,11 +78,23 @@ router.get('/:id', getApartmentById);
 router.post('/', requireAuth, requireAdmin, validateBody(createApartmentSchema), createApartment);
 
 router.post(
-  '/apartments/rates',
+  '/rates',
   requireAuth,
   requireAdmin,
   validateBody(createApartmentRateSchema),
   createApartmentRate,
+);
+
+router.get('/:id/rates', requireAuth, requireAdmin, getApartmentRates);
+
+router.delete('/rates/:id', requireAuth, requireAdmin, deleteApartmentRate);
+
+router.patch(
+  '/rates/:id',
+  requireAuth,
+  requireAdmin,
+  validateBody(updateApartmentRateSchema),
+  updateApartmentRate,
 );
 
 /**

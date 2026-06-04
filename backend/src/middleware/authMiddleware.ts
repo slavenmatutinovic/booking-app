@@ -217,7 +217,7 @@ export const optionalAuth = async (
   }
 
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    const payload = jwt.verify(token, env.JWT_SECRET) as unknown as JwtPayload;
     // Provera tokenVersion — isti mehanizam kao u requireAuth
     const dbUser = await prisma.user.findUnique({
       where: { id: payload.userId },

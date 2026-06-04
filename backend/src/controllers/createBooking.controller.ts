@@ -76,6 +76,12 @@ export const createBooking = async (
           throw new Error('APARTMENT_NOT_FOUND');
         }
 
+        // 🆕  Povlačimo sve sezone za ovaj apartman unutar transakcije
+        const rates = await tx.apartmentRate.findMany({
+          where: { apartmentId: bookingData.apartmentId },
+          orderBy: { startDate: 'asc' },
+        });
+
         // 2. Provera konflikta termina unutar bezbednog konteksta transakcije
         const conflictingBooking = await tx.booking.findFirst({
           where: {
@@ -89,6 +95,29 @@ export const createBooking = async (
         if (conflictingBooking) {
           throw new Error('BOOKING_CONFLICT');
         }
+        const totalNights = Math.round(
+          (cleanEndDate.getTime() - cleanStartDate.getTime()) / (1000 * 60 * 60 * 24),
+        );
+        let serverCalculatedTotalPrice = 0;
+
+        for (let i = 0; i < totalNights; i++) {
+          const trackingDay = new Date(cleanStartDate);
+          trackingDay.setDate(cleanStartDate.getDate() + i);
+
+          // Tražimo sezonsku cenu za trenutni dan u petlji
+          const matchingRate = rates.find((rate) => {
+            const rateStart = new Date(rate.startDate);
+            const rateEnd = new Date(rate.endDate);
+            return trackingDay >= rateStart && trackingDay <= rateEnd;
+          });
+
+          // 🛡️ Stroga provera: Ako termin nema cenu, prekidamo upis i bacamo namensku grešku
+          if (!matchingRate) {
+            throw new Error(`MISSING_RATE_FOR_DATE:${trackingDay.toISOString().split('T')[0]}`);
+          }
+
+          serverCalculatedTotalPrice += Number(matchingRate.price);
+        }
 
         // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
         const newBooking = await tx.booking.create({
@@ -100,6 +129,7 @@ export const createBooking = async (
             startDate: cleanStartDate,
             endDate: cleanEndDate,
             status: 'CONFIRMED',
+            totalPrice: serverCalculatedTotalPrice,
             createdAt: bookingData.createdAt ?? new Date(),
           },
           include: { apartment: { select: { id: true, name: true } } },
@@ -125,7 +155,10 @@ export const createBooking = async (
     // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
     invalidateBookingCache();
 
-    logger.info({ bookingId: booking.id }, '✅ Rezervacija kreirana unutar transakcije');
+    logger.info(
+      { bookingId: booking.id, totalPrice: booking.totalPrice },
+      '✅ Rezervacija kreirana unutar transakcije',
+    );
     res.status(201).json({ message: 'Rezervacija je uspešno kreirana', booking });
 
     // Fire & forget slanje imejla potvrde gostu

@@ -7,6 +7,8 @@ import { randomUUID } from 'crypto';
 import { appCache, CACHE_KEYS, invalidateBookingCache } from '../utils/cache';
 import { Mutex } from 'async-mutex';
 import { sendNewRequestToAdmin, sendRequestReceivedToGuest } from '../utils/emailService';
+import { env } from '../config/env';
+import { error } from 'console';
 
 // Centralna mapa katanaca u memoriji servera (ApartmentId -> Mutex katanac)
 const apartmentLocks = new Map<string, Mutex>();
@@ -218,13 +220,31 @@ export const verifyReservationEmail = async (
       </div>
     `);
   } catch (error: unknown) {
-    const errorMsg = error instanceof Error ? error.message : 'Termin je zauzet ili je lista puna.';
-    res.status(409).send(`
-      <div style="font-family: sans-serif; text-align: center; padding: 50px;">
+    // 1. 🚨 LOG CRITICAL INFRASTRUCTURE FAILURES
+    logger.error({ err: error }, '❌ verifyReservationEmail exception caught');
+
+    // 2. 🛡️ IDENTIFY INTENTIONAL CONFLICTS FROM INTERACTIVE TRANSACTIONS
+    // This checks if your custom validation threw a known booking overlap error message
+    const isBookingConflict =
+      error instanceof Error &&
+      (error.message.includes('zauzet') ||
+        error.message.includes('puna') ||
+        error.message.includes('Overlap'));
+
+    if (isBookingConflict) {
+      res.status(409).send(`
+      <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
         <h1 style="color: #ef4444;">Zahtev odbijen</h1>
-        <p style="color: #4b5563; font-size: 16px;">${errorMsg}</p>
+        <p style="color: #4b5563;">Izabrani termin je u međuvremenu zauzet. Molimo Vas izaberite drugi datum.</p>
+        <a href="${env.BACKEND_URL || 'http://localhost:4000'}" style="color: #2563eb; text-decoration: underline;">Nazad na kalendar</a>
       </div>
     `);
+      return;
+    }
+
+    // 3. 💥 CASCADING INFRASTRUCTURE FAILURE (DB Down, Connection Timeout, Syntax Fault)
+    // Pass it down to the global error middleware to fire a clean 500 status code
+    next(error);
   }
 };
 // =============================================================================

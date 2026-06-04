@@ -2,12 +2,15 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { DraggingState, FrontendBooking } from '../types/ui';
 import { remoteLogger } from '../utils/remoteLogger';
+import { calculateClientDynamicPrice } from '../utils/pricingCalculator';
+import { Apartment } from '../../../shared';
 
 interface UseDragDropProps {
   canEdit: boolean;
   dayW: number;
   days: Date[];
   bookings: FrontendBooking[];
+  apartments: Apartment[];
   onBookingUpdate: (
     bookingId: string,
     payload: { startDate: string; endDate: string },
@@ -43,19 +46,25 @@ function shiftDateString(dateStr: string, daysToShift: number): string {
   return `${rYear}-${rMonth}-${rDay}`;
 }
 
-export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDragDropProps) => {
+export const useDragDrop = ({
+  canEdit,
+  dayW,
+  bookings,
+  onBookingUpdate,
+  apartments,
+}: UseDragDropProps) => {
   const [dragging, setDragging] = useState<DraggingState | null>(null);
-
+  const [dragValid, setDragValid] = useState<boolean>(true);
   const [dragStatus, setDragStatus] = useState<{ valid: boolean; shift: number }>({
     valid: true,
     shift: 0,
   });
 
-  const stateRef = useRef({ dragging, dragStatus, bookings });
+  const stateRef = useRef({ dragging, dragValid, dragStatus, bookings, apartments });
 
   useEffect(() => {
-    stateRef.current = { dragging, dragStatus, bookings };
-  }, [dragging, dragStatus, bookings]);
+    stateRef.current = { dragging, dragValid, dragStatus, bookings, apartments };
+  }, [dragging, dragValid, dragStatus, bookings, apartments]);
 
   const startDrag = useCallback(
     (state: DraggingState) => {
@@ -68,7 +77,12 @@ export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDra
 
   useEffect(() => {
     const handleGlobalMouseMove = (e: MouseEvent) => {
-      const { dragging: curDrag, dragStatus: curStatus, bookings: curBookings } = stateRef.current;
+      const {
+        dragging: curDrag,
+        dragStatus: curStatus,
+        bookings: curBookings,
+        apartments: curApartments,
+      } = stateRef.current;
       if (!curDrag) return;
 
       const deltaX = e.clientX - curDrag.startX;
@@ -116,10 +130,46 @@ export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDra
           valid: isValid,
         });
       }
+
+      // 2. Compute dynamic price matrix shifts using your official client engine
+      let livePriceCalculated = 0;
+      const currentApartment = curApartments.find((a: Apartment) => a.id === curDrag.apartmentId);
+
+      if (currentApartment) {
+        // Fire the calculation engine using strictly defined custom seasonal records
+        const priceCalculationEnvelope = calculateClientDynamicPrice(
+          newStartStr,
+          newEndStr,
+          currentApartment.rates || [],
+        );
+
+        // If a night falls into an unconfigured gap, you can choose to mark the drag placement as invalid
+        // if (priceCalculationEnvelope.hasUnconfiguredDays) isValid = false;
+
+        livePriceCalculated = priceCalculationEnvelope.totalPrice;
+      }
+
+      if (
+        newStartStr !== curDrag.currentStartStr ||
+        newEndStr !== curDrag.currentEndStr ||
+        livePriceCalculated !== curDrag.currentLivePrice
+      ) {
+        setDragging({
+          ...curDrag,
+          currentStartStr: newStartStr,
+          currentEndStr: newEndStr,
+          currentLivePrice: livePriceCalculated, // Assigned and safely consumed here
+        });
+      }
+
+      // Set grid validation state flags to visually toggle colors (e.g. green for valid, red for error)
+      if (isValid !== dragValid) {
+        setDragValid(isValid);
+      }
     };
 
     const handleGlobalMouseUp = async (e: MouseEvent) => {
-      const { dragging: curDrag, dragStatus: curStatus } = stateRef.current;
+      const { dragging: curDrag, dragValid: currentDragValid } = stateRef.current;
       if (!curDrag) return;
 
       const deltaX = e.clientX - curDrag.startX;
@@ -131,7 +181,7 @@ export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDra
       setDragStatus({ valid: true, shift: 0 });
 
       // Save changes to the database only if the placement is valid and has shifted
-      if (curStatus.valid && daysShifted !== 0) {
+      if (currentDragValid && daysShifted !== 0) {
         const originalStartStr = toDashString(curDrag.originalStart);
         const originalEndStr = toDashString(curDrag.originalEnd);
 
@@ -165,11 +215,11 @@ export const useDragDrop = ({ canEdit, dayW, bookings, onBookingUpdate }: UseDra
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [dragging, dayW, onBookingUpdate]);
+  }, [dragging, dragValid, dayW, onBookingUpdate]);
 
   return {
     dragging,
-    dragValid: dragStatus.valid,
+    dragValid: dragging ? dragValid : true,
     startDrag,
   };
 };

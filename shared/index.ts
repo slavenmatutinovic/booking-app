@@ -80,6 +80,7 @@ export interface ApiBooking {
   /** ISO 8601: "2026-06-20T00:00:00.000Z" */
   endDate: string;
   status: BookingStatus;
+  totalPrice: number;
   apartment?: { id: string; name: string };
 }
 
@@ -95,6 +96,7 @@ export interface CreateBookingPayload {
   /** ISO 8601 string ili Date objekat */
   startDate: string;
   endDate: string;
+  totalPrice: number;
 }
 
 /**
@@ -107,6 +109,7 @@ export interface UpdateBookingPayload {
   startDate?: string | Date;
   endDate?: string | Date;
   status?: BookingStatus;
+  totalPrice?: number;
 }
 
 // =============================================================================
