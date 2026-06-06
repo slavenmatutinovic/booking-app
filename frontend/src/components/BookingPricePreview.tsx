@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { calculateClientDynamicPrice } from '../utils/pricingCalculator';
-
 import { format } from 'date-fns';
 import { ApartmentRateData } from '../../../shared';
 
@@ -8,20 +7,20 @@ interface BookingPricePreviewProps {
   startDate: string; // "YYYY-MM-DD"
   endDate: string; // "YYYY-MM-DD"
   activeRates: ApartmentRateData[];
-  defaultPrice?: number;
+  capacity: number;
 }
 
 export function BookingPricePreview({
   startDate,
   endDate,
   activeRates,
-  defaultPrice = 50.0,
+  capacity,
 }: BookingPricePreviewProps) {
   // Memoize calculation loops to prevent unnecessary recalibration during re-renders
   const priceCalculation = useMemo(() => {
     if (!startDate || !endDate) return null;
-    return calculateClientDynamicPrice(startDate, endDate, activeRates, defaultPrice);
-  }, [startDate, endDate, activeRates, defaultPrice]);
+    return calculateClientDynamicPrice(startDate, endDate, activeRates, 0.0, capacity);
+  }, [startDate, endDate, activeRates, capacity]);
 
   if (!priceCalculation || priceCalculation.totalNights === 0) {
     return null;
@@ -69,7 +68,10 @@ export function BookingPricePreview({
             <span>
               Noćenje {index + 1}: ({format(new Date(item.dateStr), 'dd.MM.yyyy')})
             </span>
-            <span style={{ fontWeight: 500 }}>{item.price.toFixed(2)} €</span>
+
+            <span style={{ fontWeight: 500, color: item.price === 0 ? '#ef4444' : '#475569' }}>
+              {item.price === 0 ? 'Nema konfigurisanu cenu' : `${item.price.toFixed(2)} €`}
+            </span>
           </div>
         ))}
       </div>

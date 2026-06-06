@@ -97,7 +97,9 @@ export function TimelineRow({
     (i0: number, i1: number): boolean => {
       const lo = Math.min(i0, i1);
       const hi = Math.max(i0, i1);
-      for (let i = lo; i <= hi; i++) {
+      const endLimit = lo === hi ? hi : hi - 1; // Dozvoljavamo selekciju jednog dana, ali ako je više dana, zadnji dan mora biti slobodan
+
+      for (let i = lo; i <= endLimit; i++) {
         if (!days[i] || isSolidOccupied(days[i])) return false;
       }
       return true;

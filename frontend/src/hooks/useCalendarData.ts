@@ -155,6 +155,7 @@ export function useCalendarData({
             email: b.email,
             phone: b.phone,
             color: PALETTE[currentColorIdx % PALETTE.length],
+            totalPrice: b.totalPrice,
           };
         });
 
@@ -250,10 +251,18 @@ export function useCalendarData({
       selData: SelData | null,
     ) => {
       if (isCreating) return;
+
+      // 🛡️ REŠENJE ZA POTENCIJALNI NULL: Ako selekcija ne postoji, odmah prekidamo izvršavanje
+      if (!selData) {
+        setBookingError('Nema aktivne selekcije datuma.');
+        return;
+      }
+
       setBookingError(null);
       setIsCreating(true);
       try {
         await executeCreateBooking({
+          aptId: String(selData.aptId).trim(),
           guestName: formData.guestName,
           email: formData.email,
           phone: formData.phone,

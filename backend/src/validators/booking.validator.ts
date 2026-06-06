@@ -20,8 +20,9 @@ const getStartOfToday = (): Date => {
 
 export const createBookingSchema = z
   .object({
-    // ✅ ISPRAVNO ZA v4: Koristimo top-level z.uuid() za ID apartmana
-    apartmentId: z.uuid({ message: 'ID apartmana mora biti u validnom UUID formatu.' }),
+    apartmentId: z
+      .string({ message: 'ID apartmana je obavezan.' })
+      .min(1, { message: 'ID apartmana ne može biti prazan.' }),
 
     guest: z
       .string({ message: 'Ime gosta mora biti tekst.' })
@@ -75,7 +76,9 @@ export const createBookingSchema = z
 
 export const updateBookingSchema = z
   .object({
-    apartmentId: z.uuid({ message: 'Nevažeći ID apartmana.' }).optional(),
+    apartmentId: z
+      .string({ message: 'ID apartmana je obavezan.' })
+      .min(1, { message: 'ID apartmana ne može biti prazan.' }),
 
     guest: z
       .string({ message: 'Ime gosta mora biti tekst.' })
@@ -134,7 +137,9 @@ export const updateBookingSchema = z
 
 export const createGuestRequestSchema = z
   .object({
-    apartmentId: z.uuid({ message: 'ID apartmana je obavezan i mora biti validan.' }),
+    apartmentId: z
+      .string({ message: 'ID apartmana je obavezan.' })
+      .min(1, { message: 'ID apartmana ne može biti prazan.' }),
 
     guest: z
       .string({ message: 'Ime je obavezno.' })

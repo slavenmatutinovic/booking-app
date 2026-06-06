@@ -2,7 +2,7 @@
 // 💬 frontend/src/components/BookingModal.tsx
 // =============================================================================
 
-import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react';
 import type { AuthUser, ApartmentRateData } from '../../../shared/index';
 import type { SelData } from '../types/ui';
 import { fmtShort } from '../utils/dates';
@@ -17,6 +17,7 @@ interface BookingModalProps {
       guestName: string;
       email: string;
       phone: string;
+      capacity: number;
     },
     selData: SelData | null,
   ) => void | Promise<void>;
@@ -43,14 +44,46 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   isCreating,
   activeRates,
 }) => {
+  // 🆕 DOHVATANJE DOSTUPNIH KAPACITETA IZ BAZE:
+  // Skeniramo activeRates niz, izvlačimo jedinstvene kapacitete i sortiramo ih hronološki
+  const availableCapacities: number[] = useMemo(() => {
+    if (!activeRates || activeRates.length === 0) {
+      return [2]; // Bezbedan fallback ako apartman nema upisane stope
+    }
+
+    // Izvlačimo sve capacity vrednosti iz objekata
+    const rawCapacities = activeRates.map((rate) => Number(rate.capacity));
+
+    // Koristimo Set da zadržimo samo jedinstvene brojeve (npr. [2, 3, 4])
+    const uniqueSet = new Set<number>(rawCapacities);
+
+    // Pretvaramo nazad u čist niz i sortiramo od najmanjeg ka najvećem
+    return Array.from(uniqueSet).sort((a, b) => a - b);
+  }, [activeRates]);
+
   // ✅ Lokalizovana stanja forme
   const [localGuestName, setLocalGuestName] = useState('');
   const [localEmail, setLocalEmail] = useState('');
   const [localPhone, setLocalPhone] = useState('');
-  const localGuestRef = useRef<HTMLInputElement>(null);
-
+  // 🆕 AUTOMATSKO POSTAVLJANJE PRVE OPCIJE:
+  // Kada admin promeni apartman, automatski postavljamo najmanji dostupni kapacitet iz baze kao selektovan
+  const [localCapacity, setLocalCapacity] = useState<number>(() => {
+    return availableCapacities[0] ?? 2;
+  });
   // ✅ Lokalno stanje za žive koordinate na ekranu
   const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  const localGuestRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (selData?.aptId && availableCapacities.length > 0) {
+      const nextDefaultOption = availableCapacities[0] ?? 2;
+
+      Promise.resolve().then(() => {
+        setLocalCapacity(nextDefaultOption);
+      });
+    }
+  }, [selData?.aptId, availableCapacities]);
 
   // ✅ Fokus se postavlja asinhrono i bezbedno — NEMA setState poziva ovde!
   useEffect(() => {
@@ -116,6 +149,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     setLocalGuestName('');
     setLocalEmail('');
     setLocalPhone('');
+    setLocalCapacity(2);
   };
 
   const handleSubmit = async () => {
@@ -126,6 +160,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         guestName: localGuestName.trim(),
         email: localEmail.trim(),
         phone: localPhone.trim(),
+        capacity: localCapacity,
       },
       selData,
     );
@@ -134,6 +169,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     setLocalGuestName('');
     setLocalEmail('');
     setLocalPhone('');
+    setLocalCapacity(2);
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -161,6 +197,32 @@ export const BookingModal: React.FC<BookingModalProps> = ({
               {' · '}
               {selData.totalDays} {selData.totalDays === 1 ? 'dan' : 'dana'}
             </div>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            <label style={{ fontSize: '12px', fontWeight: 500, color: '#374151' }}>
+              Broj kreveta (Kapacitet)
+            </label>
+            <select
+              value={localCapacity}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>): void => {
+                setLocalCapacity(Number(e.target.value));
+              }}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '14px',
+                backgroundColor: '#ffffff',
+                cursor: 'pointer',
+              }}
+            >
+              {/* ✅ REŠENJE: Iscrtavamo isključivo opcije koje stvarno postoje za ovaj apartman u SQL bazi */}
+              {availableCapacities.map((cap: number) => (
+                <option key={cap} value={cap}>
+                  {cap} kreveta
+                </option>
+              ))}
+            </select>
           </div>
           <button className="modal-close" onClick={handleClose} aria-label="Zatvori modal">
             ×
@@ -225,7 +287,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           startDate={selData.startDate.toISOString()} // Prosleđujemo selektovani početak
           endDate={selData.endDate.toISOString()} // Prosleđujemo selektovani kraj
           activeRates={activeRates || []} // Niz sezonskih cena prosleđen sa kalendara/apartmana
-          defaultPrice={50.0} // Fallback cena ako dan ne upada ni u jednu sezonu
+          capacity={localCapacity}
         />
 
         {/* ── Submit dugme ─────────────────────────────────────────── */}

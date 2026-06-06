@@ -44,6 +44,7 @@ model ApartmentRate {
   id          String    @id @default(cuid())
   apartmentId String
   apartment   Apartment @relation(fields: [apartmentId], references: [id])
+  capacity    Int 
   
   startDate   DateTime  // When this seasonal rate starts (inclusive)
   endDate     DateTime  // When this seasonal rate ends (inclusive)

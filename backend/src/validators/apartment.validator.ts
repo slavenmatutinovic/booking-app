@@ -17,7 +17,9 @@ export const createApartmentSchema = z.object({
 export const createApartmentRateSchema = z
   .object({
     body: z.object({
-      apartmentId: z.uuid({ message: 'ID apartmana mora biti u validnom UUID formatu.' }),
+      apartmentId: z
+        .string({ message: 'ID apartmana je obavezan.' })
+        .min(1, { message: 'ID apartmana ne može biti prazan.' }),
 
       startDate: z
         .string({ message: 'Početni datum je obavezan.' })

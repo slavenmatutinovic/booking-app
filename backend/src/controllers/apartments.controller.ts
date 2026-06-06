@@ -88,6 +88,7 @@ export const getApartments = async (
             startDate: true,
             endDate: true,
             price: true,
+            capacity: true,
           },
           orderBy: { startDate: 'asc' },
         },

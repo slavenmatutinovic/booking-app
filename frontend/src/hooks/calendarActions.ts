@@ -52,6 +52,7 @@ export function bookingsConflict(
 // =============================================================================
 
 interface CreateBookingArgs {
+  aptId: string;
   guestName: string;
   email: string;
   phone: string;
@@ -64,6 +65,7 @@ interface CreateBookingArgs {
 }
 
 export const executeCreateBooking = async ({
+  aptId,
   guestName,
   email,
   phone,
@@ -78,7 +80,7 @@ export const executeCreateBooking = async ({
   // Lokalna provjera konflikta (server je pravi čuvar — ovo je UX)
   const hasConflict = bookings.some(
     (b) =>
-      b.apartmentId === selData.aptId &&
+      b.apartmentId === aptId &&
       bookingsConflict(
         { start: formatDate(selData.startDate), end: formatDate(selData.endDate) },
         b,
@@ -93,13 +95,14 @@ export const executeCreateBooking = async ({
   const tempId = `temp-${Date.now()}`;
   const tempBooking: FrontendBooking = {
     id: tempId,
-    apartmentId: selData.aptId,
+    apartmentId: aptId,
     start: formatDate(selData.startDate),
     end: formatDate(selData.endDate),
     guest: guestName.trim(),
     email,
     color: PALETTE[bookings.length % PALETTE.length],
     isOptimistic: true,
+    totalPrice: 0,
   };
 
   setBookings((prev) => [...prev, tempBooking]);
@@ -119,7 +122,7 @@ export const executeCreateBooking = async ({
 
     if (isAdmin) {
       const created = await createBooking({
-        apartmentId: selData.aptId,
+        apartmentId: aptId,
         guest: guestName.trim(),
         startDate: safeStartDate,
         endDate: safeEndDate,
@@ -134,7 +137,7 @@ export const executeCreateBooking = async ({
     } else {
       // 🌍 GOST / VIEWER: Pošto korisnik nije admin, šaljemo na našu novu javnu rutu!
       await createBookingRequest({
-        apartmentId: selData.aptId,
+        apartmentId: aptId,
         guest: guestName.trim(),
         startDate: safeStartDate,
         endDate: safeEndDate,

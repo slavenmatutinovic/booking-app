@@ -67,10 +67,23 @@ export const useDragDrop = ({
   }, [dragging, dragValid, dragStatus, bookings, apartments]);
 
   const startDrag = useCallback(
-    (state: DraggingState) => {
+    (
+      // 🛡️ REŠENJE: Govorimo kompajleru da nam live preview tekstovi i cena ne trebaju na samom startu
+      initialState: Omit<DraggingState, 'currentStartStr' | 'currentEndStr' | 'currentLivePrice'>,
+    ) => {
       if (!canEdit) return;
-      setDragging(state);
-      setDragStatus({ valid: true, shift: 0 });
+
+      const startStr = toDashString(initialState.originalStart);
+      const endStr = toDashString(initialState.originalEnd);
+
+      // Sastavljamo pun DraggingState objekat unutar React state-a
+      setDragging({
+        ...initialState,
+        currentStartStr: startStr,
+        currentEndStr: endStr,
+        currentLivePrice: 0, // Početna cena pre pomeranja miša
+      });
+      setDragValid(true);
     },
     [canEdit],
   );

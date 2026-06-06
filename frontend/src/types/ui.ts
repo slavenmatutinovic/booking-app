@@ -35,6 +35,7 @@ export interface FrontendBooking extends Omit<ApiBooking, 'startDate' | 'endDate
    * false/undefined → Potvrđena rezervacija iz baze.
    */
   isOptimistic?: boolean;
+  capacity: number;
 }
 
 // =============================================================================
@@ -56,6 +57,7 @@ export interface DraggingState {
   currentStartStr: string; // Format: "YYYY-MM-DD"
   currentEndStr: string; // Format: "YYYY-MM-DD"
   currentLivePrice: number;
+  capacity: number;
 }
 
 // =============================================================================

@@ -45,7 +45,8 @@ export interface ApartmentRateData {
   apartmentId: string;
   startDate: string;
   endDate: string;
-  price: string | number;
+  price: number;
+  capacity: number;
 }
 
 // =============================================================================

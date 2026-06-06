@@ -128,10 +128,24 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     days,
     bookings,
     onBookingUpdate: handleBookingUpdate,
+    apartments,
   });
 
   // ── Hover state (Stabilizovan pomoću useCallback-a za potrebe memo-a) ──────
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  useEffect(() => {
+    // Only listen and trace coordinates if an active dragging operation is happening
+    if (!dragging) return;
+
+    const handleWindowMouseMove = (e: MouseEvent) => {
+      setCursorPos({ x: e.clientX, y: e.clientY });
+    };
+
+    window.addEventListener('mousemove', handleWindowMouseMove);
+    return () => window.removeEventListener('mousemove', handleWindowMouseMove);
+  }, [dragging]);
 
   const deleteBooking = useCallback(
     async (id: string) => {
@@ -159,7 +173,15 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
         document.documentElement.style.removeProperty('--drag-offset-x');
       } else {
         // Ako stigne stvarni objekat, pokrećemo tvoj startDrag iz kuke
-        startDrag(state);
+        startDrag({
+          bookingId: state.bookingId,
+          apartmentId: state.apartmentId,
+          startX: state.startX,
+          originalStart: state.originalStart,
+          originalEnd: state.originalEnd,
+          // Ako si prebacio kapacitet u BookingData model, čitamo ga živog, u suprotnom fallback je 2
+          capacity: Number(state.capacity || 2),
+        });
       }
     },
     [startDrag],
@@ -220,16 +242,60 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
             setSelection={setSelection}
             createBooking={createBooking}
             apartmentsCount={apartments.length}
-            aptIdx={apartments.findIndex((a) => a.id === selData?.aptId)} // Računamo indeks uživo na osnovu ID-ja apartmana
+            aptIdx={selData ? selData.aptIdx : 0}
             dayW={dayW}
             modalW={MODAL_W}
             isAdmin={isAdmin}
             currentUser={currentUser}
             bookingError={bookingError}
-            activeRates={apartments.find((a) => a.id === selData.aptId)?.rates || []}
+            activeRates={apartments.find((a) => a.id === selData?.aptId)?.rates || []}
             isCreating={isCreating}
           />,
           document.body, // 👈 Ubrizgava modal direktno na dno HTML-a van svih divova
+        )}
+      {/* 🆕 NEW: Real-Time Dragging Currency Tooltip Overlay Badge */}
+      {dragging &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              // 🛡️ Safe Positioning: Offsets the badge 15px down and right away from the cursor pointer
+              left: `${cursorPos.x + 16}px`,
+              top: `${cursorPos.y + 16}px`, // Places it clearly on top of the layout matrix view
+              zIndex: 99999, // Guarantees the badge floats on top of calendar lanes
+              background: dragValid ? '#1e3a8a' : '#991b1b', // Blue if placement is valid, strict Red if timeline collision occurs
+              color: '#ffffff',
+              padding: '8px 14px',
+              borderRadius: '24px',
+              fontSize: '12px',
+              fontWeight: 'bold',
+              boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '2px',
+              pointerEvents: 'none', // Critical: Prevents cursor capturing stutter loops or frame layout jittering
+              transition: 'background-color 0.15s ease',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span>{dragValid ? '🏷️ Živa cena:' : '🚫 Nedostupan termin:'}</span>
+              <span style={{ fontSize: '14px', fontWeight: 800 }}>
+                {dragging.currentLivePrice === 0
+                  ? 'Nema cene'
+                  : `${dragging.currentLivePrice.toFixed(2)} €`}
+              </span>
+            </div>
+            <div
+              style={{
+                fontSize: '10px',
+                color: dragValid ? '#93c5fd' : '#fca5a5',
+                fontWeight: 'normal',
+              }}
+            >
+              ({dragging.currentStartStr} do {dragging.currentEndStr}) • {dragging.capacity} os.
+            </div>
+          </div>,
+          document.body, // Safely injects into global viewport window tracking frame spaces
         )}
     </div>
   );
