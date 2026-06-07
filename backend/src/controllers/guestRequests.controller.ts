@@ -9,10 +9,17 @@ import { Mutex } from 'async-mutex';
 import { sendNewRequestToAdmin, sendRequestReceivedToGuest } from '../utils/emailService';
 import { env } from '../config/env';
 import { findConflictingBooking } from '../utils/bookingConflict';
+import { normalizeToUTCMidnight } from '../utils/dateUtils';
 
 // Centralna mapa katanaca u memoriji servera (ApartmentId -> Mutex katanac)
 const apartmentLocks = new Map<string, Mutex>();
 
+/**
+ * 🔒 BEZBEDAN IN-MEMORY KATANAC
+ * Pošto aplikacija radi isključivo u jednoj instanci, vraćamo brzi in-memory mutex.
+ * ✅ OPTIMIZOVANO: Ako katanac više nije aktivan (niko ne čeka na njega),
+ *                 čistimo ga iz mape kako bismo sprečili curenje memorije (Memory Leak).
+ */
 const getApartmentMutex = (apartmentId: string): Mutex => {
   let mutex = apartmentLocks.get(apartmentId);
   if (!mutex) {
@@ -20,6 +27,16 @@ const getApartmentMutex = (apartmentId: string): Mutex => {
     apartmentLocks.set(apartmentId, mutex);
   }
   return mutex;
+};
+
+/**
+ * Pomoćna funkcija za čišćenje neaktivnih katanaca iz RAM memorije
+ */
+const releaseApartmentMutex = (apartmentId: string, mutex: Mutex): void => {
+  // Ako nema drugih asinhronih niti koje čekaju u redu na ovaj stan, bezbedno brišemo katanac
+  if (!mutex.isLocked()) {
+    apartmentLocks.delete(apartmentId);
+  }
 };
 
 /**
@@ -42,47 +59,50 @@ export const createBookingRequest = async (
       guest: string;
       email: string;
       phone: string;
-      startDate: Date;
-      endDate: Date;
+      startDate: string | Date;
+      endDate: string | Date;
     };
 
-    if (await findConflictingBooking(prisma, apartmentId, new Date(startDate), new Date(endDate))) {
-      res
-        .status(409)
-        .json({ error: 'Izabrani termin je u međuvremenu zauzet potvrđenom rezervacijom.' });
-      return;
-    }
+    // 🔒 100% STRIKTAN UTC: Normalizujemo dolazne datume pre ulaska u bazu
+    const utcStartDate = normalizeToUTCMidnight(new Date(startDate));
+    const utcEndDate = normalizeToUTCMidnight(new Date(endDate));
 
-    const emailTimeout = new Date(Date.now() + 2 * 60 * 60 * 1000); // Tačno 2 sata u milisekundama
-
-    logger.info(
-      { emailTimeout: emailTimeout.toISOString() },
-      '📧 Generisan privremeni rok za verifikaciju email adrese gosta',
-    );
-
+    const emailTimeout = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 sata u ms
     const token = randomUUID();
 
-    // 2. Upisujemo privremeni zahtev
-    const newRequest = await prisma.reservationRequest.create({
-      data: {
-        apartmentId: String(apartmentId),
-        guest: guest.trim(),
-        email: email.trim().toLowerCase(),
-        phone: phone?.trim() || '',
-        startDate: startDate,
-        endDate: endDate,
-        status: 'PENDING_EMAIL',
-        emailToken: token,
-        expiresAt: emailTimeout,
-      },
-      include: {
-        apartment: { select: { id: true, name: true } },
-      },
+    // 🛡️ POKRETANJE TRANSAKCIJE: Zaključavamo proces upisa zahteva radi apsolutne sigurnosti podataka
+    const newRequest = await prisma.$transaction(async (tx) => {
+      // 1. Izvršavamo sirovi PostgreSQL row-level lock nad apartmanom da zaustavimo paralelne niti
+      await tx.$executeRaw`SELECT id FROM "Apartment" WHERE id = ${apartmentId} FOR UPDATE`;
+
+      // 2. Proveravamo konflikt unutar tekuće izolovane transakcije (tx) [N-01]
+      const isConflicting = await findConflictingBooking(tx, apartmentId, utcStartDate, utcEndDate);
+      if (isConflicting) {
+        throw new Error('BOOKING_ALREADY_TAKEN');
+      }
+
+      // 3. Ako je termin slobodan, kreiramo privremeni zahtev gosta unutar iste transakcije
+      return await tx.reservationRequest.create({
+        data: {
+          apartmentId: String(apartmentId),
+          guest: guest.trim(),
+          email: email.trim().toLowerCase(),
+          phone: phone?.trim() || '',
+          startDate: utcStartDate,
+          endDate: utcEndDate,
+          status: 'PENDING_EMAIL',
+          emailToken: token,
+          expiresAt: emailTimeout,
+        },
+        include: {
+          apartment: { select: { id: true, name: true } },
+        },
+      });
     });
 
-    // 3. Slanje email linka gostu za verifikaciju
     const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:4000'}/api/bookings/verify?token=${token}`;
 
+    // Fire & Forget email slanje sa obaveznim osiguranjem Promise-a od nepostojećih mockova
     const guestEmailPromise = sendRequestReceivedToGuest({
       id: newRequest.id,
       guest: newRequest.guest,
@@ -100,14 +120,26 @@ export const createBookingRequest = async (
       });
     }
 
-    logger.info({ requestId: newRequest.id }, '✅ Zahtev upisan pod statusom PENDING_EMAIL');
+    logger.info(
+      { requestId: newRequest.id },
+      '✅ Zahtev upisan pod transakcijskom zaštitom PENDING_EMAIL',
+    );
 
     res.status(201).json({
       message: 'Zahtev primljen. Molimo potvrdite vašu rezervaciju preko email-a u roku od 2 sata.',
       requestId: newRequest.id,
     });
-  } catch (error) {
-    logger.error({ err: error }, '❌ createBookingRequest — neočekivana greška');
+  } catch (error: unknown) {
+    const errMessage = error instanceof Error ? error.message : '';
+
+    if (errMessage === 'BOOKING_ALREADY_TAKEN') {
+      res
+        .status(409)
+        .json({ error: 'Izabrani termin je u međuvremenu zauzet potvrđenom rezervacijom.' });
+      return;
+    }
+
+    logger.error({ err: error }, '❌ createBookingRequest — neočekivana greška u transakciji');
     next(error);
   }
 };
@@ -193,6 +225,9 @@ export const verifyReservationEmail = async (
       });
     });
 
+    // ✅ DODATO: Odmah nakon oslobađanja katanca, čistimo mapu ako je stan slobodan
+    releaseApartmentMutex(targetRequest.apartmentId, mutex);
+
     appCache.del(CACHE_KEYS.PENDING_REQUESTS);
     invalidateBookingCache();
 
@@ -251,33 +286,6 @@ export const verifyReservationEmail = async (
 
     // 3. 💥 CASCADING INFRASTRUCTURE FAILURE (DB Down, Connection Timeout, Syntax Fault)
     // Pass it down to the global error middleware to fire a clean 500 status code
-    next(error);
-  }
-};
-// =============================================================================
-// 📊 GET /api/bookings/requests/count — [NOVO] Broj pending zahteva za badge
-// =============================================================================
-
-export const getPendingRequestsCount = async (
-  req: Request,
-  res: Response,
-  next: NextFunction,
-): Promise<void> => {
-  try {
-    // Optimizacija: Ako već imamo keširanu listu svih zahteva, čitamo njen .length (brže od DB upita!)
-    const cachedRequests = appCache.get<any[]>(CACHE_KEYS.PENDING_REQUESTS);
-    if (cachedRequests) {
-      res.json({ count: cachedRequests.length });
-      return;
-    }
-
-    const count = await prisma.reservationRequest.count({
-      where: { status: 'PENDING_APPROVAL' },
-    });
-
-    res.json({ count });
-  } catch (error) {
-    logger.error({ err: error }, '❌ getPendingRequestsCount — greška');
     next(error);
   }
 };

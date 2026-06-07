@@ -59,12 +59,16 @@ import rateLimit from 'express-rate-limit';
 import { updateBooking, deleteBooking } from '../controllers/bookings.controller';
 import { getBookings } from '../controllers/getBookings.controller';
 import { createBooking } from '../controllers/createBooking.controller';
+import { mutationRateLimiter } from '../middleware/rateLimiterMiddleware';
 import {
   createBookingRequest,
-  getPendingRequestsCount,
   verifyReservationEmail,
 } from '../controllers/guestRequests.controller';
-import { getPendingRequests, rejectRequest } from '../controllers/adminRequests.controller';
+import {
+  getPendingRequestsCount,
+  getPendingRequests,
+  rejectRequest,
+} from '../controllers/adminRequests.controller';
 
 import { optionalAuth, requireAuth, requireAdmin } from '../middleware/authMiddleware';
 import { validateBody } from '../middleware/validateMiddleware';
@@ -130,6 +134,7 @@ router.get('/verify', verifyReservationEmail);
 
 router.post(
   '/requests',
+  optionalAuth,
   standaloneRequestsLimiter,
   validateBody(createGuestRequestSchema),
   createBookingRequest,
@@ -155,6 +160,7 @@ router.post(
   '/requests/approve',
   requireAuth,
   requireAdmin,
+  mutationRateLimiter, // 🎯 Štiti bazu od brzih uzastopnih odobrenja (spamming klikova)
   validateConditionalCreate,
   createBooking,
 );
@@ -163,7 +169,13 @@ router.post(
  * PATCH /api/bookings/requests/:id/reject
  * Admin odbija zahtev gosta (menja status u bazi)
  */
-router.patch('/requests/:id/reject', requireAuth, requireAdmin, rejectRequest);
+router.patch(
+  '/requests/:id/reject',
+  requireAuth,
+  requireAdmin,
+  mutationRateLimiter, // 🎯 Identitetski-svestan rate limit za odbijanje
+  rejectRequest,
+);
 
 // =============================================================================
 // 🔑 ADMIN-ONLY RUTE (obavezna prijava + ADMIN rola)
@@ -177,7 +189,14 @@ router.patch('/requests/:id/reject', requireAuth, requireAdmin, rejectRequest);
  *
  * Body: { apartmentId, guest, startDate, endDate, email?, phone? }
  */
-router.post('/', requireAuth, requireAdmin, validateConditionalCreate, createBooking);
+router.post(
+  '/',
+  requireAuth,
+  requireAdmin,
+  mutationRateLimiter, // 🎯 Prati rad admina po njegovom userId, ne po IP adresi
+  validateConditionalCreate,
+  createBooking,
+);
 
 /**
  * PATCH /api/bookings/:id
@@ -187,7 +206,14 @@ router.post('/', requireAuth, requireAdmin, validateConditionalCreate, createBoo
  *
  * Body: Parcijalni objekat — samo polja koja se mijenjaju
  */
-router.patch('/:id', requireAuth, requireAdmin, validateBody(updateBookingSchema), updateBooking);
+router.patch(
+  '/:id',
+  requireAuth,
+  requireAdmin,
+  mutationRateLimiter,
+  validateBody(updateBookingSchema),
+  updateBooking,
+);
 
 /**
  * DELETE /api/bookings/:id
@@ -198,6 +224,6 @@ router.patch('/:id', requireAuth, requireAdmin, validateBody(updateBookingSchema
  *   • Mogućnost oporavka obrisane rezervacije
  *   • Nema problema sa stranim ključevima
  */
-router.delete('/:id', requireAuth, requireAdmin, deleteBooking);
+router.delete('/:id', requireAuth, requireAdmin, mutationRateLimiter, deleteBooking);
 
 export default router;

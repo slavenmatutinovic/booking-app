@@ -73,21 +73,8 @@ export function calculateClientDynamicPrice(
 
       const isDateInsideRange = trackingDayStr >= rateStartStr && trackingDayStr <= rateEndStr;
 
-      let dbCapacity = 2;
-
-      const extendedRate = rate as ApartmentRateData & Record<string, unknown>;
-
-      if (extendedRate.capacity !== undefined && extendedRate.capacity !== null) {
-        dbCapacity = Number(extendedRate.capacity);
-      } else if (typeof extendedRate.id === 'string') {
-        const parts = extendedRate.id.split('_');
-        const lastNum = parseInt(parts[parts.length - 1] || '1', 10);
-
-        if (lastNum === 1) dbCapacity = 2;
-        if (lastNum === 2) dbCapacity = 3;
-        if (lastNum === 3) dbCapacity = 4;
-        if (lastNum === 4) dbCapacity = 5;
-      }
+      const dbCapacity =
+        rate.capacity !== undefined && rate.capacity !== null ? Number(rate.capacity) : 2; // Razumni podrazumevani default (2 osobe)
 
       const isCapacityMatching = Number(dbCapacity) === Number(capacity);
 

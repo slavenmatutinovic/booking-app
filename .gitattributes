@@ -1,0 +1,23 @@
+# =============================================================================
+# ⚖️ Global Git Repository Core Alignment Settings
+# =============================================================================
+
+# Force automated text file detection tracking sweeps
+* text=auto eol=lf
+
+# 🔒 STRUGEL: Strict text-file formatting transformation overrides
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.prisma text eol=lf
+*.md text eol=lf
+*.css text eol=lf
+
+# Explicit binary file parameter exclusions to prevent formatting corruption
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.ico binary

@@ -110,6 +110,34 @@ export const rejectRequest = async (
   }
 };
 
+// =============================================================================
+// 📊 GET /api/bookings/requests/count — [NOVO] Broj pending zahteva za badge
+// =============================================================================
+
+export const getPendingRequestsCount = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    // Optimizacija: Ako već imamo keširanu listu svih zahteva, čitamo njen .length (brže od DB upita!)
+    const cachedRequests = appCache.get<any[]>(CACHE_KEYS.PENDING_REQUESTS);
+    if (cachedRequests) {
+      res.json({ count: cachedRequests.length });
+      return;
+    }
+
+    const count = await prisma.reservationRequest.count({
+      where: { status: 'PENDING_APPROVAL' },
+    });
+
+    res.json({ count });
+  } catch (error) {
+    logger.error({ err: error }, '❌ getPendingRequestsCount — greška');
+    next(error);
+  }
+};
+
 /**
  * POST /api//bookings/requests/approve
  * 🔑 ADMIN-ONLY: Atomska transakcija za odobrenje i kreiranje rezervacije

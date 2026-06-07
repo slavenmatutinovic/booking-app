@@ -94,8 +94,10 @@ export const getBookings = async (
 
     const rangeToken = startMonth && endMonth ? `${startMonth}_${endMonth}` : month || 'all';
 
+    const castCursor = typeof cursor === 'string' ? cursor : undefined;
+
     // Kreiramo dinamički ključ na osnovu parametara pretrage (npr. "bookings:2026-07")
-    const cacheKey = CACHE_KEYS.BOOKINGS(rangeToken, apartmentId);
+    const cacheKey = CACHE_KEYS.BOOKINGS(rangeToken, apartmentId, castCursor);
 
     if (shouldCache) {
       const cachedBookings = appCache.get(cacheKey);

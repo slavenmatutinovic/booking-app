@@ -376,7 +376,7 @@ export const deleteApartment = async (
     logger.info({ apartmentId: safeId, adminId: req.user?.userId }, '✅ Apartman obrisan');
     res.json({ message: 'Apartman je uspešno obrisan.' });
     // INVALIDACIJA KEŠA — briše se stari niz, novi će se učitati pri sledećem GET pozivu
-    appCache.del(CACHE_KEYS.APARTMENTS);
+    invalidateApartmentCache(safeId);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {

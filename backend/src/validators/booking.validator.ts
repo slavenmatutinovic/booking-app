@@ -33,9 +33,7 @@ export const createBookingSchema = z
     phone: z
       .string({ message: 'Broj telefona mora biti tekst.' })
       .max(30, { message: 'Broj telefona je predugačak.' })
-      .optional()
-      .nullable()
-      .default(''),
+      .optional(),
 
     startDate: isoDatetime(
       'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',

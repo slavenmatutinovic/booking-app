@@ -59,13 +59,26 @@ export const createBooking = async (
       bookingData = req.body;
     }
 
+    const utcStartDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.startDate));
+    const utcEndDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.endDate));
+
+    // 🛡️ PRE-TRANSACTION CHECKPOINT:
+    // Fast-fail duplicate incoming requests immediately using a standard read query.
+    // This offloads traffic from the connection pool, preventing connection timeouts.
+    const earlyConflict = await findConflictingBooking(
+      prisma,
+      bookingData.apartmentId,
+      utcStartDate,
+      utcEndDate,
+    );
+    if (earlyConflict) {
+      res.status(409).json({ error: 'Termin nije slobodan — postoji preklapajuća rezervacija' });
+      return;
+    }
+
     // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
     const booking = await prisma.$transaction(
       async (tx) => {
-        const utcStartDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.startDate));
-
-        const utcEndDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.endDate));
-
         // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
         // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
         const apartments = await tx.$queryRaw<ApartmentRow[]>`
@@ -113,7 +126,7 @@ export const createBooking = async (
             apartmentId: bookingData.apartmentId,
             guest: bookingData.guest,
             email: bookingData.email,
-            phone: bookingData.phone ?? '',
+            phone: bookingData.phone?.trim() ?? '',
             startDate: utcStartDate,
             endDate: utcEndDate,
             status: 'CONFIRMED',
