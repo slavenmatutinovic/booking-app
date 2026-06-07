@@ -1,6 +1,7 @@
 // backend/src/validators/booking.validator.ts (DEO 1)
 import { z } from 'zod';
 import { MAX_BOOKING_DAYS } from '../../../shared/index';
+import { getUTCStartOfToday } from '../utils/dateUtils';
 
 // Regex koji prihvata validan ISO 8601 UTC datetime string
 const isoDatetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
@@ -12,10 +13,9 @@ function isoDatetime(errorMsg: string) {
     .transform((s: string) => new Date(s));
 }
 
-const getStartOfToday = (): Date => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
+const getStartOfTodayUTC = (): Date => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 };
 
 export const createBookingSchema = z
@@ -30,7 +30,6 @@ export const createBookingSchema = z
       .max(100, { message: 'Ime gosta je predugačko.' })
       .transform((s: string) => s.trim()),
 
-    // ✅ ISPRAVNO ZA v4: Uklonjen nepostojeći .check() i spojen lanac u z.email()
     email: z
       .email({ message: 'Neispravan format email adrese.' })
       .max(255, { message: 'Email je predugačak.' })
@@ -47,8 +46,10 @@ export const createBookingSchema = z
       'startDate mora biti validan ISO 8601 string (npr. 2026-06-01T00:00:00.000Z)',
     ).refine(
       (date: Date) => {
-        const absolutePastThreshold = getStartOfToday();
-        absolutePastThreshold.setHours(absolutePastThreshold.getHours() - 12);
+        // Safe protection if field validation processing encounters an Invalid Date loop
+        if (isNaN(date.getTime())) return false;
+        const absolutePastThreshold = getUTCStartOfToday();
+        absolutePastThreshold.setUTCHours(absolutePastThreshold.getUTCHours() - 12);
         return date >= absolutePastThreshold;
       },
       { message: 'Početni datum ne može biti u prošlosti.' },
@@ -56,13 +57,42 @@ export const createBookingSchema = z
 
     endDate: isoDatetime('endDate mora biti validan ISO 8601 string.'),
   })
-  .refine((data) => data.endDate > data.startDate, {
-    message: 'Datum odlaska mora biti posle datuma dolaska.',
-    path: ['endDate'],
-  })
   .refine(
     (data) => {
-      const diffTime = Math.abs(data.endDate.getTime() - data.startDate.getTime());
+      const start = data.startDate;
+      const end = data.endDate;
+
+      if (
+        !(start instanceof Date) ||
+        !(end instanceof Date) ||
+        isNaN(start.getTime()) ||
+        isNaN(end.getTime())
+      ) {
+        return false; // Kratak spoj: Puštamo primarne regex validatore iznad da bace poruku o formatu
+      }
+
+      return end.getTime() > start.getTime();
+    },
+    {
+      message: 'Datum odlaska mora biti posle datuma dolaska.',
+      path: ['endDate'],
+    },
+  )
+  .refine(
+    (data) => {
+      const start = data.startDate;
+      const end = data.endDate;
+
+      if (
+        !(start instanceof Date) ||
+        !(end instanceof Date) ||
+        isNaN(start.getTime()) ||
+        isNaN(end.getTime())
+      ) {
+        return false;
+      }
+
+      const diffTime = Math.abs(end.getTime() - start.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       return diffDays <= MAX_BOOKING_DAYS;
     },
@@ -87,7 +117,6 @@ export const updateBookingSchema = z
       .transform((s: string) => s.trim())
       .optional(),
 
-    // ✅ ISPRAVNO ZA v4: Zamenjen stari .check() sa čistim z.email()
     email: z
       .email({ message: 'Neispravan format email adrese.' })
       .max(255, { message: 'Email je predugačak.' })
@@ -159,12 +188,17 @@ export const createGuestRequestSchema = z
       .nullable()
       .transform((s: string | null | undefined) => s?.trim() || ''),
 
-    startDate: z
-      .string({ message: 'Datum početka je obavezan.' })
-      .transform((str: string) => new Date(str))
-      .refine((date: Date) => date >= getStartOfToday(), {
-        message: 'Datum početka ne može biti in the past.',
-      }),
+    startDate: isoDatetime(
+      'startDate mora biti ISO 8601 string (npr. 2026-06-01T00:00:00.000Z).',
+    ).refine(
+      (date: Date) => {
+        const threshold = getStartOfTodayUTC();
+        // Dozvoljavamo 12h tolerancije za globalne vremenske razlike
+        threshold.setUTCHours(threshold.getUTCHours() - 12);
+        return date >= threshold;
+      },
+      { message: 'Datum početka ne može biti u prošlosti.' },
+    ),
 
     endDate: isoDatetime('endDate mora biti ISO 8601 string.'),
   })

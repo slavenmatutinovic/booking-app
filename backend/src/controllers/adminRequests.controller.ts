@@ -83,7 +83,7 @@ export const rejectRequest = async (
         ? existingRequest.phone
         : '';
 
-    sendRequestRejectedToGuest({
+    const rejectEmailPromise = sendRequestRejectedToGuest({
       id: existingRequest.id,
       guest: existingRequest.guest,
       email: existingRequest.email,
@@ -91,13 +91,12 @@ export const rejectRequest = async (
       startDate: existingRequest.startDate,
       endDate: existingRequest.endDate,
       apartment: existingRequest.apartment,
-    }).catch((err: unknown) => {
-      const errorMsg = err instanceof Error ? err.message : 'Nepoznata greška';
-      logger.error(
-        { err, requestId: existingRequest.id },
-        `⚠️ Email odbijanja gostu nije poslat: ${errorMsg}`,
-      );
     });
+    if (rejectEmailPromise instanceof Promise) {
+      rejectEmailPromise.catch((err: unknown) => {
+        logger.error({ err }, '📧 Pozadinsko slanje email obaveštenja o odbijanju nije uspelo');
+      });
+    }
   } catch (error: unknown) {
     // P2025 označava da zapis nije pronađen (ili je već odobren/odbijen)
     if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {

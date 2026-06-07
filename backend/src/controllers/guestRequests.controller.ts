@@ -8,7 +8,7 @@ import { appCache, CACHE_KEYS, invalidateBookingCache } from '../utils/cache';
 import { Mutex } from 'async-mutex';
 import { sendNewRequestToAdmin, sendRequestReceivedToGuest } from '../utils/emailService';
 import { env } from '../config/env';
-import { error } from 'console';
+import { findConflictingBooking } from '../utils/bookingConflict';
 
 // Centralna mapa katanaca u memoriji servera (ApartmentId -> Mutex katanac)
 const apartmentLocks = new Map<string, Mutex>();
@@ -46,25 +46,19 @@ export const createBookingRequest = async (
       endDate: Date;
     };
 
-    // 1. Brza provera konflikta sa potvrđenim rezervacijama
-    const conflictingBooking = await prisma.booking.findFirst({
-      where: {
-        apartmentId,
-        status: 'CONFIRMED',
-        startDate: { lt: endDate },
-        endDate: { gt: startDate },
-      },
-    });
-
-    if (conflictingBooking) {
+    if (await findConflictingBooking(prisma, apartmentId, new Date(startDate), new Date(endDate))) {
       res
         .status(409)
         .json({ error: 'Izabrani termin je u međuvremenu zauzet potvrđenom rezervacijom.' });
       return;
     }
 
-    const emailTimeout = new Date();
-    emailTimeout.setHours(emailTimeout.getHours() + 2);
+    const emailTimeout = new Date(Date.now() + 2 * 60 * 60 * 1000); // Tačno 2 sata u milisekundama
+
+    logger.info(
+      { emailTimeout: emailTimeout.toISOString() },
+      '📧 Generisan privremeni rok za verifikaciju email adrese gosta',
+    );
 
     const token = randomUUID();
 
@@ -89,7 +83,7 @@ export const createBookingRequest = async (
     // 3. Slanje email linka gostu za verifikaciju
     const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:4000'}/api/bookings/verify?token=${token}`;
 
-    sendRequestReceivedToGuest({
+    const guestEmailPromise = sendRequestReceivedToGuest({
       id: newRequest.id,
       guest: newRequest.guest,
       email: newRequest.email,
@@ -98,7 +92,13 @@ export const createBookingRequest = async (
       endDate: newRequest.endDate,
       apartment: newRequest.apartment,
       verificationLink,
-    }).catch((err) => logger.error(err));
+    });
+
+    if (guestEmailPromise instanceof Promise) {
+      guestEmailPromise.catch((err: unknown) => {
+        logger.error({ err }, '📧 Pozadinsko slanje email obaveštenja gostu nije uspelo');
+      });
+    }
 
     logger.info({ requestId: newRequest.id }, '✅ Zahtev upisan pod statusom PENDING_EMAIL');
 
@@ -135,11 +135,11 @@ export const verifyReservationEmail = async (
       include: { apartment: { select: { id: true, name: true } } },
     });
 
-    const now = new Date();
+    const nowUTC = new Date();
     if (
       !targetRequest ||
       targetRequest.status !== 'PENDING_EMAIL' ||
-      targetRequest.expiresAt < now
+      targetRequest.expiresAt < nowUTC
     ) {
       res
         .status(404)
@@ -151,16 +151,14 @@ export const verifyReservationEmail = async (
 
     // Ulazimo u izolovanu async nit za ovaj apartman
     const updatedRequest = await mutex.runExclusive(async () => {
-      const conflictingBooking = await prisma.booking.findFirst({
-        where: {
-          apartmentId: targetRequest.apartmentId,
-          status: 'CONFIRMED',
-          startDate: { lt: targetRequest.endDate },
-          endDate: { gt: targetRequest.startDate },
-        },
-      });
-
-      if (conflictingBooking) {
+      if (
+        await findConflictingBooking(
+          prisma,
+          targetRequest.apartmentId,
+          targetRequest.startDate,
+          targetRequest.endDate,
+        )
+      ) {
         throw new Error('Izabrani termin je u međuvremenu zauzet potvrđenom rezervacijom.');
       }
 
@@ -179,8 +177,11 @@ export const verifyReservationEmail = async (
         );
       }
 
-      const adminApprovalTimeout = new Date();
-      adminApprovalTimeout.setHours(adminApprovalTimeout.getHours() + 24);
+      const adminApprovalTimeout = new Date(Date.now() + 24 * 60 * 60 * 1000); // Tačno 24 sata u milisekundama
+      logger.info(
+        { adminApprovalTimeout: adminApprovalTimeout.toISOString() },
+        '📬 Generisan stabilan rok za admin odobrenje zahteva',
+      );
 
       return await prisma.reservationRequest.update({
         where: { id: targetRequest.id },
@@ -201,7 +202,7 @@ export const verifyReservationEmail = async (
     );
 
     // Obaveštavamo admina tek nakon uspešne email verifikacije
-    sendNewRequestToAdmin({
+    const adminEmailPromise = sendNewRequestToAdmin({
       id: targetRequest.id,
       guest: targetRequest.guest,
       email: targetRequest.email,
@@ -209,7 +210,13 @@ export const verifyReservationEmail = async (
       startDate: targetRequest.startDate,
       endDate: targetRequest.endDate,
       apartment: targetRequest.apartment,
-    }).catch((err) => logger.error(err));
+    });
+
+    if (adminEmailPromise instanceof Promise) {
+      adminEmailPromise.catch((err: unknown) => {
+        logger.error({ err }, '📧 Pozadinsko slanje email obaveštenja adminu nije uspelo');
+      });
+    }
 
     res.status(200).send(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px; background-color: #f9fafb; min-height: 100vh;">

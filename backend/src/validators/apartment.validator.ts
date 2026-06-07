@@ -17,24 +17,30 @@ export const createApartmentSchema = z.object({
 export const createApartmentRateSchema = z
   .object({
     body: z.object({
-      apartmentId: z
-        .string({ message: 'ID apartmana je obavezan.' })
-        .min(1, { message: 'ID apartmana ne može biti prazan.' }),
-
+      apartmentId: z.string().min(1, 'ID apartmana je obavezan.'),
       startDate: z
-        .string({ message: 'Početni datum je obavezan.' })
-        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum mora biti u formatu YYYY-MM-DD'),
-
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Neispravan format početnog datuma (YYYY-MM-DD).'),
       endDate: z
-        .string({ message: 'Završni datum je obavezan.' })
-        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Datum mora biti u formatu YYYY-MM-DD'),
-
-      price: z.number({ message: 'Cena je obavezna.' }).positive('Cena mora biti veća od nule.'),
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Neispravan format krajnjeg datuma (YYYY-MM-DD).'),
+      price: z.number().positive('Cena mora biti veća od nule.'),
+      capacity: z
+        .number()
+        .int()
+        .min(1, 'Kapacitet mora biti najmanje 1 osoba.')
+        .max(20, 'Kapacitet ne može biti veći od 20 osoba.'),
     }),
   })
   .refine(
-    // 🛡️ Zod v4 bezbedna provera: Izvlačimo podatke iz body sloja requests-a
     (schemaData) => {
+      // 🛡️ Zod v4 bezbedna provera: Prvo proveravamo da li datumi uopšte prate regex šemu
+      // pre nego što pokušamo da izvučemo milisekunde. Ovo sprečava "NaN" padove.
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(schemaData.body.startDate) || !dateRegex.test(schemaData.body.endDate)) {
+        return true; // Puštamo da primarni regex validator iznad izbaci tačnu poruku o formatu
+      }
+
       const start = new Date(schemaData.body.startDate).getTime();
       const end = new Date(schemaData.body.endDate).getTime();
 

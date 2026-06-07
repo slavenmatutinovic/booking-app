@@ -4,6 +4,8 @@ import { prisma } from '../config/prisma';
 import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingConfirmation } from '../utils/emailService';
 import { invalidateBookingCache } from '../utils/cache';
+import { parseStringToUTCDate, normalizeToUTCMidnight, calcNightsUTC } from '../utils/dateUtils';
+import { findConflictingBooking } from '../utils/bookingConflict';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
 type ApartmentRow = { id: string };
@@ -60,11 +62,9 @@ export const createBooking = async (
     // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
     const booking = await prisma.$transaction(
       async (tx) => {
-        const cleanStartDate = new Date(bookingData.startDate);
-        cleanStartDate.setUTCHours(0, 0, 0, 0);
+        const utcStartDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.startDate));
 
-        const cleanEndDate = new Date(bookingData.endDate);
-        cleanEndDate.setUTCHours(0, 0, 0, 0);
+        const utcEndDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.endDate));
 
         // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
         // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
@@ -82,27 +82,15 @@ export const createBooking = async (
           orderBy: { startDate: 'asc' },
         });
 
-        // 2. Provera konflikta termina unutar bezbednog konteksta transakcije
-        const conflictingBooking = await tx.booking.findFirst({
-          where: {
-            apartmentId: bookingData.apartmentId,
-            status: 'CONFIRMED',
-            startDate: { lt: cleanEndDate }, // Ključni hotelski operator: startDate mora biti strogo manje od endDate novog zahteva
-            endDate: { gt: cleanStartDate }, // Ključni hotelski operator: endDate mora biti strogo veći od startDate novog zahteva
-          },
-        });
-
-        if (conflictingBooking) {
+        if (await findConflictingBooking(tx, bookingData.apartmentId, utcStartDate, utcEndDate)) {
           throw new Error('BOOKING_CONFLICT');
         }
-        const totalNights = Math.round(
-          (cleanEndDate.getTime() - cleanStartDate.getTime()) / (1000 * 60 * 60 * 24),
-        );
+        const totalNights = calcNightsUTC(utcStartDate, utcEndDate);
         let serverCalculatedTotalPrice = 0;
 
         for (let i = 0; i < totalNights; i++) {
-          const trackingDay = new Date(cleanStartDate);
-          trackingDay.setDate(cleanStartDate.getDate() + i);
+          const trackingDay = new Date(utcStartDate);
+          trackingDay.setDate(utcStartDate.getDate() + i);
 
           // Tražimo sezonsku cenu za trenutni dan u petlji
           const matchingRate = rates.find((rate) => {
@@ -126,8 +114,8 @@ export const createBooking = async (
             guest: bookingData.guest,
             email: bookingData.email,
             phone: bookingData.phone ?? '',
-            startDate: cleanStartDate,
-            endDate: cleanEndDate,
+            startDate: utcStartDate,
+            endDate: utcEndDate,
             status: 'CONFIRMED',
             totalPrice: serverCalculatedTotalPrice,
             createdAt: bookingData.createdAt ?? new Date(),
@@ -162,16 +150,24 @@ export const createBooking = async (
     res.status(201).json({ message: 'Rezervacija je uspešno kreirana', booking });
 
     // Fire & forget slanje imejla potvrde gostu
-    sendBookingConfirmation(booking).catch((emailErr) => {
-      logger.error({ err: emailErr, bookingId: booking.id }, '⚠️ Email potvrde nije poslat');
-    });
+    const confirmationPromise = sendBookingConfirmation(booking);
 
-    // 📊 Excel backup — fire & forget, ne blokira odgovor
-    runCombinedBackup(
-      requestId
-        ? `Odobrena rezervacija (request: ${requestId})`
-        : `Kreirana rezervacija: ${booking.id}`,
-    );
+    if (confirmationPromise instanceof Promise) {
+      confirmationPromise.catch((err: unknown) => {
+        logger.error({ err, bookingId: booking.id }, '📧 Slanje email potvrde gostu nije uspelo');
+      });
+    }
+    // 📊 Excel i backup — fire & forget, ne blokira odgovor
+    const backupPromise = runCombinedBackup('booking_mutation');
+    if (backupPromise instanceof Promise) {
+      backupPromise.catch((err: unknown) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error(
+          { err: error, bookingId: booking.id },
+          '⚠️ Sinhronizacija kombinovanog bekapa nakon unosa nije uspela',
+        );
+      });
+    }
   } catch (error: unknown) {
     // Obrada specifičnih grešaka koje su bačene unutar transakcije
     const failedApartmentId = req.body?.apartmentId ? String(req.body.apartmentId) : 'unknown';
@@ -188,6 +184,20 @@ export const createBooking = async (
           '⚠️ createBooking — konflikt termina unutar transakcije',
         );
         res.status(409).json({ error: 'Termin nije slobodan — postoji preklapajuća rezervacija' });
+        return;
+      }
+
+      if (error.message && error.message.startsWith('MISSING_RATE_FOR_DATE:')) {
+        const missingDate = error.message.split(':')[1] ?? 'nepoznat datum';
+
+        logger.warn(
+          { missingDate, apartmentId: req.body?.apartmentId || failedApartmentId },
+          '⚠️ Pokušaj kreiranja rezervacije bez definisane cene za datum',
+        );
+
+        res.status(422).json({
+          error: `Za datum ${missingDate} nije definisana sezonska cena. Molimo admina da postavi cenovnik pre kreiranja rezervacije.`,
+        });
         return;
       }
     }

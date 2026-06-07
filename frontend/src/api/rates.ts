@@ -6,6 +6,7 @@ export interface CreateRatePayload {
   startDate: string; // ISO String "YYYY-MM-DD"
   endDate: string; // ISO String "YYYY-MM-DD"
   price: number;
+  capacity: number;
 }
 
 /**
@@ -19,9 +20,10 @@ export const createApartmentRate = async (
     body: JSON.stringify({
       apartmentId: payload.apartmentId,
       // Convert standard form calendar picks to fully compliant ISO structures
-      startDate: new Date(payload.startDate).toISOString(),
-      endDate: new Date(payload.endDate).toISOString(),
+      startDate: payload.startDate, // Čist "YYYY-MM-DD" string direktno iz forme
+      endDate: payload.endDate, // Čist "YYYY-MM-DD" string direktno iz forme
       price: Number(payload.price),
+      capacity: Number(payload.capacity),
     }),
   });
 

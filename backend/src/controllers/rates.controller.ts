@@ -27,16 +27,18 @@ export const createApartmentRate = async (
       return;
     }
 
-    const { apartmentId, startDate, endDate, price } = validation.data.body;
+    const { apartmentId, startDate, endDate, price, capacity } = validation.data.body;
 
     // 2. 🛡️ COLLISION INSPECTION LOOKUP:
     // Check if another configured rate block already maps over any slice of the chosen window
     const overlappingRate = await prisma.apartmentRate.findFirst({
       where: {
         apartmentId,
-        // Strict interval overlapping logic condition formula: (StartA < EndB) AND (EndA > StartB)
-        startDate: { lte: endDate },
-        endDate: { gte: startDate },
+        // ✅ ISPRAVLJENO: Koristimo stroge operatore (lt/gt) umesto inkluzivnih (lte/gte).
+        // Logika preklapanja glasi: (Postojeći_Start < Novi_End) AND (Postojeći_Kraj > Novi_Start).
+        // Ovo sprečava lažne greške (konflikte) kada se sezone nadovezuju dan za danom.
+        startDate: { lt: endDate },
+        endDate: { gt: startDate },
       },
     });
 
@@ -57,6 +59,7 @@ export const createApartmentRate = async (
         startDate,
         endDate,
         price,
+        capacity,
       },
     });
 
@@ -136,7 +139,14 @@ export const updateApartmentRate = async (
     const updatedRate = await prisma.apartmentRate.update({
       where: { id },
       data: { price },
-      select: { apartmentId: true, price: true },
+      select: {
+        id: true,
+        apartmentId: true,
+        startDate: true,
+        endDate: true,
+        price: true,
+        capacity: true,
+      },
     });
 
     // 2. 🛡️ INVALIDACIJA KEŠA: Čistimo memoriju za taj apartman i globalnu listu
@@ -206,6 +216,7 @@ export const getApartmentRates = async (
         startDate: true,
         endDate: true,
         price: true,
+        capacity: true,
       },
     });
 

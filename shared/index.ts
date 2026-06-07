@@ -97,7 +97,7 @@ export interface CreateBookingPayload {
   /** ISO 8601 string ili Date objekat */
   startDate: string;
   endDate: string;
-  totalPrice: number;
+  totalPrice?: number;
 }
 
 /**

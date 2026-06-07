@@ -40,7 +40,7 @@
 //   - Odobravanje zahteva (approve) se obavlja kroz posebnu rutu koja uključuje transakciju i provjeru konflikta.
 //   - Odbijanje zahteva (reject) menja status u bazi i obaveštava gosta, ali ne briše zahtev (ostaje u istoriji).
 //   - Ove rute zahtevaju novu tabelu u bazi (booking_requests) i odgovarajuće modele i migracije.
-//   - Vidi: backend/src/controllers/bookingRequests.controller.ts (TODO)
+//   - Implementacija: backend/src/controllers/guestRequests.controller.ts i backend/src/controllers/adminRequests.controller.ts
 //
 // =============================================================================
 //

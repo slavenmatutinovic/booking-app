@@ -118,6 +118,27 @@ export function CalendarToolbar({
           </span>
         )}
 
+        {/* ✅ Visoko-kontrastno dugme za otvaranje menadžera cena na novom URL-u */}
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/admin/rates');
+            }}
+            className="btn"
+            style={{
+              marginRight: 4,
+              background: '#10b981',
+              color: '#fff',
+              border: 'none',
+              fontWeight: 600,
+            }}
+          >
+            💰 Cenovnik i sezone
+          </button>
+        )}
+
         {isAdmin && (
           <button
             onClick={() => navigate('/admin/requests')}

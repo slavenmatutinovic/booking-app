@@ -26,6 +26,7 @@ import { ApiError, MAX_BOOKING_DAYS } from '../../../shared/index';
 import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingCancellation } from '../utils/emailService';
 import { invalidateBookingCache } from '../utils/cache';
+import { findConflictingBooking } from '../utils/bookingConflict';
 
 type BookingRow = {
   id: string;
@@ -95,17 +96,7 @@ export const updateBooking = async (
             SELECT id FROM "Apartment" WHERE id = ${finalApartmentId} FOR UPDATE
           `;
 
-          const conflictingBooking = await tx.booking.findFirst({
-            where: {
-              apartmentId: finalApartmentId,
-              status: 'CONFIRMED',
-              id: { not: id }, // Izuzimamo samu sebe iz provere preklapanja
-              startDate: { lt: finalEndDate },
-              endDate: { gt: finalStartDate },
-            },
-          });
-
-          if (conflictingBooking) {
+          if (await findConflictingBooking(tx, finalApartmentId, finalStartDate, finalEndDate)) {
             throw new Error('BOOKING_CONFLICT');
           }
 
@@ -242,14 +233,27 @@ export const deleteBooking = async (
     res.json({ message: 'Rezervacija je uspešno otkazana', booking: cancelledBooking });
 
     // Email obaveštenje o otkazivanju — fire & forget
-    sendBookingCancellation(cancelledBooking).catch((emailErr) => {
-      logger.error(
-        { err: emailErr, bookingId: cancelledBooking.id },
-        '⚠️ Email otkazivanja nije poslat',
-      );
-    });
+    const cancellationEmailPromise = sendBookingCancellation(cancelledBooking);
+    if (cancellationEmailPromise instanceof Promise) {
+      cancellationEmailPromise.catch((err: unknown) => {
+        logger.error(
+          { err, bookingId: cancelledBooking.id },
+          '📧 Slanje email obaveštenja o otkazivanju nije uspelo',
+        );
+      });
+    }
+
     // 📊 Excel backup — fire & forget
-    runCombinedBackup(`Otkazana rezervacija: ${safeId}`);
+    const backupPromise = runCombinedBackup(`Otkazana rezervacija: ${safeId}`);
+    if (backupPromise instanceof Promise) {
+      backupPromise.catch((err: unknown) => {
+        const error = err instanceof Error ? err : new Error(String(err));
+        logger.error(
+          { err: error, bookingId: cancelledBooking.id },
+          '⚠️ Sinhronizacija kombinovanog bekapa nakon otkazivanja nije uspela',
+        );
+      });
+    }
   } catch (error: unknown) {
     // Rukovanje greškama usklađeno sa Zod v4 i TypeScript unknown standardom
     if (error instanceof Error) {

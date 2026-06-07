@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getPendingRequests, approveBookingRequest, rejectBookingRequest } from '../api/bookings';
 import { fmtShort } from '../utils/dates';
-import { ApiReservationRequest } from '../types/ui';
+import { ReservationRequest } from '../../../shared/index';
 import { Link } from 'react-router-dom';
 
 // 🟢 Helper: Computes localized human-readable hours remaining until expiration
@@ -27,7 +27,7 @@ function getRemainingTimeLabel(expiresAtStr: string | Date): { text: string; isU
 }
 
 export function AdminDashboard() {
-  const [requests, setRequests] = useState<ApiReservationRequest[]>([]);
+  const [requests, setRequests] = useState<ReservationRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);

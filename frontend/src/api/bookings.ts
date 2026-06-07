@@ -2,41 +2,13 @@
 //  CRUD za rezervacije
 import apiFetch from './index';
 import { remoteLogger } from '../utils/remoteLogger';
-import { ApiReservationRequest } from '../types/ui';
-
-// Tip koji koristi BookingCalendar.tsx interno
-export interface BookingAPI {
-  id: string;
-  apartmentId: string;
-  guest: string;
-  email?: string | null;
-  phone?: string | null;
-  startDate: string; // ISO string iz baze — konvertujemo u 'yyyy-MM-dd' za kalendar
-  endDate: string;
-  status: 'CONFIRMED' | 'CANCELLED';
-  apartment?: { id: string; name: string };
-}
-
-export interface CreateBookingPayload {
-  apartmentId: string;
-  guest: string;
-  email: string;
-  phone?: string | null;
-  startDate: Date;
-  endDate: Date;
-}
-
-// 📋 Koverat za unificiran mrežni odgovor paginacije kalendara
-export interface BookingsEnvelope {
-  bookings: BookingAPI[];
-  nextCursor: string | null;
-}
-
-// 📋 Odgovor servera nakon uspešnog odobravanja zahteva
-export interface ApproveRequestResponse {
-  message: string;
-  booking: BookingAPI;
-}
+import {
+  ReservationRequest,
+  ApiBooking,
+  CreateBookingPayload,
+  UpdateBookingPayload,
+  BookingsResponse,
+} from '../../../shared/index';
 
 // ─── GET /api/bookings ─────────────────────────────────────────────────────────
 export const getBookings = async (params?: {
@@ -46,7 +18,7 @@ export const getBookings = async (params?: {
   apartmentId?: string;
   cursor?: string;
   limit?: number;
-}): Promise<BookingsEnvelope> => {
+}): Promise<BookingsResponse> => {
   const query = new URLSearchParams();
   if (params?.month) query.set('month', params.month);
   if (params?.startMonth) query.set('startMonth', params.startMonth);
@@ -79,7 +51,7 @@ export const getBookings = async (params?: {
 };
 
 // ─── POST /api/bookings ────────────────────────────────────────────────────────
-export const createBooking = async (payload: CreateBookingPayload): Promise<BookingAPI> => {
+export const createBooking = async (payload: CreateBookingPayload): Promise<ApiBooking> => {
   remoteLogger({
     level: 'info',
     message: 'POST /api/bookings',
@@ -90,9 +62,14 @@ export const createBooking = async (payload: CreateBookingPayload): Promise<Book
     method: 'POST',
     body: JSON.stringify({
       ...payload,
-      // Konvertujemo Date u ISO string (JSON.stringify ne radi to automatski za Date)
-      startDate: payload.startDate.toISOString(),
-      endDate: payload.endDate.toISOString(),
+      startDate:
+        typeof payload.startDate === 'string'
+          ? payload.startDate
+          : new Date(payload.startDate).toISOString(),
+      endDate:
+        typeof payload.endDate === 'string'
+          ? payload.endDate
+          : new Date(payload.endDate).toISOString(),
     }),
   });
 
@@ -138,8 +115,14 @@ export const createBookingRequest = async (
     method: 'POST',
     body: JSON.stringify({
       ...payload,
-      startDate: payload?.startDate?.toISOString(),
-      endDate: payload?.endDate?.toISOString(),
+      startDate:
+        typeof payload.startDate === 'string'
+          ? payload.startDate
+          : new Date(payload.startDate).toISOString(),
+      endDate:
+        typeof payload.endDate === 'string'
+          ? payload.endDate
+          : new Date(payload.endDate).toISOString(),
     }),
   });
 
@@ -181,15 +164,6 @@ export const deleteBooking = async (id: string): Promise<void> => {
 
   remoteLogger({ level: 'info', message: `Rezervacija ${id} otkazana` });
 };
-// ─── UPDATE /api/bookings/:id  ────────────────────────────────────
-export interface UpdateBookingPayload {
-  guest?: string;
-  email?: string;
-  phone?: string | null;
-  startDate?: Date | string;
-  endDate?: Date | string;
-  status?: 'CONFIRMED' | 'CANCELLED';
-}
 
 function toISOStringSafe(val: Date | string | undefined | null): string | undefined {
   if (val === undefined || val === null) return undefined;
@@ -202,7 +176,7 @@ function toISOStringSafe(val: Date | string | undefined | null): string | undefi
 export const updateBooking = async (
   id: string,
   payload: UpdateBookingPayload,
-): Promise<BookingAPI> => {
+): Promise<ApiBooking> => {
   // Build a clean body — no Date objects can leak through spread
   const cleanBody: Record<string, unknown> = {};
   if (payload.guest !== undefined) cleanBody.guest = payload.guest;
@@ -224,7 +198,7 @@ export const updateBooking = async (
 };
 
 // ─── GET /api/bookings/requests/pending (Admin uvid) ──────────────────────────
-export const getPendingRequests = async (): Promise<ApiReservationRequest[]> => {
+export const getPendingRequests = async (): Promise<ReservationRequest[]> => {
   remoteLogger({
     level: 'info',
     message: 'GET /api/bookings/requests/pending — Povlačenje zahteva',
@@ -255,7 +229,7 @@ export const getPendingRequestsCount = async (): Promise<number> => {
 // ─── POST /api/bookings/requests/approve (Pametno odobravanje) ────────────────
 export const approveBookingRequest = async (
   requestId: string,
-): Promise<{ message: string; booking: BookingAPI }> => {
+): Promise<{ message: string; booking: ApiBooking }> => {
   remoteLogger({
     level: 'info',
     message: `POST /api/bookings/requests/approve — Odobravanje zahteva ${requestId}`,
@@ -273,7 +247,7 @@ export const approveBookingRequest = async (
     throw new Error(data.error || 'Greška pri odobravanju zahteva.');
   }
 
-  return data; // { message: string, booking: BookingAPI }
+  return data; // { message: string, booking: ApiBooking }
 };
 
 export const rejectBookingRequest = async (requestId: string): Promise<{ message: string }> => {

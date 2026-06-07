@@ -1,6 +1,7 @@
 // frontend/src/utils/pricingCalculator.ts
 import { addDays, differenceInDays } from 'date-fns';
 import { ApartmentRateData } from '../../../shared';
+import { parseDateStr } from './dates';
 
 export interface DayBreakdownItem {
   dateStr: string;
@@ -17,10 +18,23 @@ export interface ClientPriceCalculationResult {
 
 // Pomoćna funkcija: Bezbedno čupa YYYY-MM-DD deo iz datuma
 function cleanDateToIsoString(input: Date | string): string {
-  const dateObj = typeof input === 'string' ? new Date(input) : input;
-  const year = dateObj.getFullYear();
-  const month = String(dateObj.getMonth() + 1).padStart(2, '0');
-  const day = String(dateObj.getDate()).padStart(2, '0');
+  if (typeof input === 'string') {
+    // Ako je već ISO string ili sadrži vremensku zonu, izolujemo samo YYYY-MM-DD deo
+    const cleanStr = input.split('T')[0] ?? '';
+    // Ako string odgovara YYYY-MM-DD formatu, vraćamo ga direktno bez parsiranja
+    if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
+      return cleanStr;
+    }
+    const parsed = parseDateStr(cleanStr);
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  const year = input.getFullYear();
+  const month = String(input.getMonth() + 1).padStart(2, '0');
+  const day = String(input.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
@@ -34,8 +48,13 @@ export function calculateClientDynamicPrice(
   fallbackPrice = 0.0,
   capacity = 2,
 ): ClientPriceCalculationResult {
-  const startJsDate = new Date(startDateStr);
-  const endJsDate = new Date(endDateStr);
+  const startJsDate =
+    typeof startDateStr === 'string'
+      ? parseDateStr(startDateStr.split('T')[0] ?? '')
+      : startDateStr;
+
+  const endJsDate =
+    typeof endDateStr === 'string' ? parseDateStr(endDateStr.split('T')[0] ?? '') : endDateStr;
 
   const totalNights = differenceInDays(endJsDate, startJsDate);
 
@@ -43,7 +62,7 @@ export function calculateClientDynamicPrice(
   let hasUnconfiguredDays = false;
   const breakdown: DayBreakdownItem[] = [];
 
-  let trackingDay = new Date(startJsDate);
+  let trackingDay = new Date(startJsDate.getTime());
 
   for (let i = 0; i < totalNights; i++) {
     const trackingDayStr = cleanDateToIsoString(trackingDay);
@@ -54,11 +73,9 @@ export function calculateClientDynamicPrice(
 
       const isDateInsideRange = trackingDayStr >= rateStartStr && trackingDayStr <= rateEndStr;
 
-      // 🛡️ PAMETNI FALLBACK: Ako baza još uvek ne šalje polje capacity,
-      // čitamo poslednji broj iz id-a (npr. "r2_1_1" završava sa 1 za 2 kreveta, "r2_1_2" sa 2 za 3 kreveta, itd.)
       let dbCapacity = 2;
 
-      const extendedRate = rate as ApartmentRateData & { capacity?: unknown; id?: string };
+      const extendedRate = rate as ApartmentRateData & Record<string, unknown>;
 
       if (extendedRate.capacity !== undefined && extendedRate.capacity !== null) {
         dbCapacity = Number(extendedRate.capacity);

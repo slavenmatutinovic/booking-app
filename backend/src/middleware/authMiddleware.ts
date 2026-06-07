@@ -101,8 +101,7 @@ export const requireAuth = async (
   }
 
   try {
-    const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-
+    const JWT_SECRET = env.JWT_SECRET;
     const payload = jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
 
     // Dinamički ključ za ovog specifičnog korisnika
@@ -217,15 +216,34 @@ export const optionalAuth = async (
   }
 
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as unknown as JwtPayload;
-    // Provera tokenVersion — isti mehanizam kao u requireAuth
-    const dbUser = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      select: { tokenVersion: true },
-    });
+    const JWT_SECRET = env.JWT_SECRET;
+    const payload = jwt.verify(token, JWT_SECRET) as unknown as JwtPayload;
+    const cacheKey = `user:session:${payload.userId}`;
+    // 🛡️ Look up the compiled token sequence variables inside central system cache arrays
+    let cachedSession = appCache.get<{ tokenVersion: number; role: UserRole }>(cacheKey);
 
-    if (dbUser && dbUser.tokenVersion === payload.tokenVersion) {
-      req.user = payload;
+    if (!cachedSession) {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: payload.userId },
+        select: { tokenVersion: true, role: true },
+      });
+
+      if (dbUser) {
+        cachedSession = {
+          tokenVersion: dbUser.tokenVersion,
+          role: dbUser.role as UserRole,
+        };
+        // Commit session state updates into server RAM memory for 5 minutes (300s)
+        appCache.set(cacheKey, cachedSession, 300);
+      }
+    }
+
+    // Explicit structural match mapping tracking rules evaluation
+    if (cachedSession && cachedSession.tokenVersion === payload.tokenVersion) {
+      req.user = {
+        userId: payload.userId,
+        role: cachedSession.role,
+      };
     }
     // Ako tokenVersion ne odgovara, req.user ostaje undefined — ponašamo se kao gost
   } catch {

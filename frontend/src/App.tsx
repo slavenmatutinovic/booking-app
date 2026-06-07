@@ -48,6 +48,7 @@ import { getMe } from './api/auth';
 import { remoteLogger } from './utils/remoteLogger';
 import type { AuthUser } from '../../shared/index';
 import { Toaster } from 'react-hot-toast';
+import { AdminRatesPage } from './components/AdminRatesPage';
 
 // =============================================================================
 // 🛡️  ADMIN GUARD KOMPONENTA (Klijentski čuvar rute)
@@ -209,6 +210,16 @@ function App() {
           element={
             <RequireAdmin user={user}>
               <AdminDashboard />
+            </RequireAdmin>
+          }
+        />
+
+        {/* 💰 🔒 ZAŠTIĆENA RUTA ZA SEZONSKE CENOVNIKE I KAPACITETE */}
+        <Route
+          path="/admin/rates"
+          element={
+            <RequireAdmin user={user}>
+              <AdminRatesPage />
             </RequireAdmin>
           }
         />

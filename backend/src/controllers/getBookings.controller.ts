@@ -29,30 +29,29 @@ export const getBookings = async (
 
   // 🔒 HOTELSKE SMENE OPSEGA: Ako klijent šalje opseg meseci (npr. maj i jun)
   if (startMonth && endMonth) {
-    const [sYear, sMon] = String(startMonth).split('-').map(Number);
-    const [eYear, eMon] = String(endMonth).split('-').map(Number);
+    const sYear = parseInt(req.query.startYear as string);
+    const sMon = parseInt(req.query.startMonth as string);
+    const eYear = parseInt(req.query.endYear as string);
+    const eMon = parseInt(req.query.endMonth as string);
+
+    let startRange: Date;
+    let endRange: Date;
 
     if (sYear && sMon && eYear && eMon) {
-      const startRange = new Date(sYear, sMon - 1, 1, 0, 0, 0);
-      const endRange = new Date(eYear, eMon, 0, 23, 59, 59);
+      startRange = new Date(Date.UTC(sYear, sMon - 1, 1, 0, 0, 0));
+      endRange = new Date(Date.UTC(eYear, eMon, 0, 23, 59, 59));
+    } else {
+      // Fallback za single month parameter flow if range boundaries are missing
+      const year = parseInt(req.query.year as string) || new Date().getUTCFullYear();
+      const mon = parseInt(req.query.month as string) || new Date().getUTCMonth() + 1;
 
-      // Koristimo stroge hotelske operatore (lt i gt) da se datumi smena ne sudaraju!
-      where.startDate = { lt: endRange };
-      where.endDate = { gt: startRange };
+      // ✅ Fallback za single month:
+      startRange = new Date(Date.UTC(year, mon - 1, 1, 0, 0, 0));
+      endRange = new Date(Date.UTC(year, mon, 0, 23, 59, 59));
     }
-  }
-  // Fallback na stari jednokanalni mesec ako startMonth/endMonth ne stignu
-  else if (month) {
-    const [year, mon] = String(month).split('-').map(Number);
-    if (!year || !mon || mon < 1 || mon > 12) {
-      res.status(400).json({ error: 'Neispravan format meseca. Koristite YYYY-MM.' });
-      return;
-    }
-    const startOfMonth = new Date(year, mon - 1, 1, 0, 0, 0);
-    const endOfMonth = new Date(year, mon, 0, 23, 59, 59);
-
-    where.startDate = { lt: endOfMonth };
-    where.endDate = { gt: startOfMonth };
+    // Koristimo stroge hotelske operatore (lt i gt) da se datumi smena ne sudaraju!
+    where.startDate = { lt: endRange };
+    where.endDate = { gt: startRange };
   }
 
   try {

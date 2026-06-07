@@ -25,9 +25,9 @@ import {
   deleteBooking as apiDelete,
   createBookingRequest,
   createBooking,
-  type UpdateBookingPayload,
 } from '../api/bookings';
 import toast from 'react-hot-toast';
+import { UpdateBookingPayload } from '../../../shared/index';
 // =============================================================================
 // 🧮 UTILITY
 // =============================================================================
@@ -103,6 +103,7 @@ export const executeCreateBooking = async ({
     color: PALETTE[bookings.length % PALETTE.length],
     isOptimistic: true,
     totalPrice: 0,
+    capacity: 2,
   };
 
   setBookings((prev) => [...prev, tempBooking]);
@@ -114,18 +115,12 @@ export const executeCreateBooking = async ({
     const finalStartDateStr = `${formatDate(selData.startDate)}T00:00:00.000Z`;
     const finalEndDateStr = `${formatDate(selData.endDate)}T00:00:00.000Z`;
 
-    const safeStartDate = new Date(finalStartDateStr);
-    const safeEndDate = new Date(finalEndDateStr);
-
-    safeStartDate.toISOString = () => finalStartDateStr;
-    safeEndDate.toISOString = () => finalEndDateStr;
-
     if (isAdmin) {
       const created = await createBooking({
         apartmentId: aptId,
         guest: guestName.trim(),
-        startDate: safeStartDate,
-        endDate: safeEndDate,
+        startDate: finalStartDateStr,
+        endDate: finalEndDateStr,
         email: email.trim(),
         phone: phone.trim() || undefined,
       });
@@ -139,8 +134,8 @@ export const executeCreateBooking = async ({
       await createBookingRequest({
         apartmentId: aptId,
         guest: guestName.trim(),
-        startDate: safeStartDate,
-        endDate: safeEndDate,
+        startDate: finalStartDateStr,
+        endDate: finalEndDateStr,
         email: email.trim(),
         phone: phone.trim() || undefined,
       });

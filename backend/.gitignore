@@ -3,7 +3,7 @@ node_modules
 .env
 
 /generated/prisma
-/backup/
+backend/backups/
 
 # Log fajlovi
 *.log

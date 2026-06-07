@@ -85,10 +85,38 @@ router.post(
   createApartmentRate,
 );
 
+// =============================================================================
+// 💰 RUTE ZA SEZONSKE CENE (Unutar /api/apartments)
+// =============================================================================
+
+/**
+ * GET /api/apartments/:id/rates
+ * Čita sve sezonske cene za specifičan apartman
+ */
 router.get('/:id/rates', requireAuth, requireAdmin, getApartmentRates);
 
+/**
+ * POST /api/apartments/rates
+ * ✅ Kreiranje nove sezonske cene sa Zod v4 validacijom tela (body)
+ */
+router.post(
+  '/rates',
+  requireAuth,
+  requireAdmin,
+  validateBody(createApartmentRateSchema), // Validira i body i capacity!
+  createApartmentRate,
+);
+
+/**
+ * DELETE /api/apartments/rates/:id
+ * Trajno brisanje jedne sezonske cene
+ */
 router.delete('/rates/:id', requireAuth, requireAdmin, deleteApartmentRate);
 
+/**
+ * PATCH /api/apartments/rates/:id
+ * Izmena cene unutar postojećeg sezonskog bloka
+ */
 router.patch(
   '/rates/:id',
   requireAuth,
@@ -96,6 +124,10 @@ router.patch(
   validateBody(updateApartmentRateSchema),
   updateApartmentRate,
 );
+
+// =============================================================================
+// 🏢 RUTE ZA UPRAVLJANJE APARTMANIMA (Unutar /api/apartments)
+// =============================================================================
 
 /**
  * PATCH /api/apartments/:id
