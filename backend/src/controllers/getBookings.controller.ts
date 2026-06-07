@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { appCache, CACHE_KEYS } from '../utils/cache';
+import { getUTCMonthRange, parseStringToUTCDate } from '../utils/dateUtils';
 
 // ─── GET /api/bookings ─────────────────────────────────────────────────────────
 export const getBookings = async (
@@ -28,31 +29,48 @@ export const getBookings = async (
   }
 
   // 🔒 HOTELSKE SMENE OPSEGA: Ako klijent šalje opseg meseci (npr. maj i jun)
-  if (startMonth && endMonth) {
-    const sYear = parseInt(req.query.startYear as string);
-    const sMon = parseInt(req.query.startMonth as string);
-    const eYear = parseInt(req.query.endYear as string);
-    const eMon = parseInt(req.query.endMonth as string);
 
-    let startRange: Date;
-    let endRange: Date;
+  let startRange: Date;
+  let endRange: Date;
 
-    if (sYear && sMon && eYear && eMon) {
-      startRange = new Date(Date.UTC(sYear, sMon - 1, 1, 0, 0, 0));
-      endRange = new Date(Date.UTC(eYear, eMon, 0, 23, 59, 59));
-    } else {
-      // Fallback za single month parameter flow if range boundaries are missing
-      const year = parseInt(req.query.year as string) || new Date().getUTCFullYear();
-      const mon = parseInt(req.query.month as string) || new Date().getUTCMonth() + 1;
+  if (typeof startMonth === 'string' && typeof endMonth === 'string' && startMonth && endMonth) {
+    // ✅  Veštački dopunjavamo stringove na pun YYYY-MM-DD format
+    // startMonth ("2026-05") dopunjujemo na prvi dan u mesecu -> "2026-05-01"
+    const fullStartStr = `${startMonth}-01`;
 
-      // ✅ Fallback za single month:
-      startRange = new Date(Date.UTC(year, mon - 1, 1, 0, 0, 0));
-      endRange = new Date(Date.UTC(year, mon, 0, 23, 59, 59));
-    }
-    // Koristimo stroge hotelske operatore (lt i gt) da se datumi smena ne sudaraju!
-    where.startDate = { lt: endRange };
-    where.endDate = { gt: startRange };
+    // endMonth ("2026-06") dopunjujemo na prvi dan u mesecu -> "2026-06-01"
+    const fullEndStr = `${endMonth}-01`;
+
+    const parsedStartDate = parseStringToUTCDate(fullStartStr);
+    const parsedEndDate = parseStringToUTCDate(fullEndStr);
+
+    // Izvlačimo čistu godinu i mesec iz bezbedno dobijenih UTC objekata
+    const sYear = parsedStartDate.getUTCFullYear();
+    const sMon = parsedStartDate.getUTCMonth() + 1; // getUTCMonth vraća 0-11
+
+    const eYear = parsedEndDate.getUTCFullYear();
+    const eMon = parsedEndDate.getUTCMonth() + 1;
+
+    // Koristimo dateUtils da generišemo konačne matematičke UTC granice za te mesece
+    startRange = getUTCMonthRange(sYear, sMon).start;
+    endRange = getUTCMonthRange(eYear, eMon).end;
+  } else {
+    // Fallback za single month parameter flow if range boundaries are missing
+    const year = parseInt(req.query.year as string, 10) || new Date().getUTCFullYear();
+    const mon = parseInt(req.query.month as string, 10) || new Date().getUTCMonth() + 1;
+
+    const singleMonthPeriod = getUTCMonthRange(year, mon);
+    startRange = singleMonthPeriod.start;
+    endRange = singleMonthPeriod.end;
   }
+
+  logger.info(
+    { startRange: startRange.toISOString(), endRange: endRange.toISOString() },
+    '🔍 getBookings — Raspon uspešno izračunat upotrebom parseStringToUTCDate parsera',
+  );
+  // Koristimo stroge hotelske operatore (lt i gt) da se datumi smena ne sudaraju!
+  where.startDate = { lt: endRange };
+  where.endDate = { gt: startRange };
 
   try {
     const parsedLimit = Math.min(Number(limit), 500);

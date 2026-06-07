@@ -13,11 +13,6 @@ function isoDatetime(errorMsg: string) {
     .transform((s: string) => new Date(s));
 }
 
-const getStartOfTodayUTC = (): Date => {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-};
-
 export const createBookingSchema = z
   .object({
     apartmentId: z
@@ -108,7 +103,8 @@ export const updateBookingSchema = z
   .object({
     apartmentId: z
       .string({ message: 'ID apartmana je obavezan.' })
-      .min(1, { message: 'ID apartmana ne može biti prazan.' }),
+      .min(1, { message: 'ID apartmana ne može biti prazan.' })
+      .optional(),
 
     guest: z
       .string({ message: 'Ime gosta mora biti tekst.' })
@@ -192,7 +188,7 @@ export const createGuestRequestSchema = z
       'startDate mora biti ISO 8601 string (npr. 2026-06-01T00:00:00.000Z).',
     ).refine(
       (date: Date) => {
-        const threshold = getStartOfTodayUTC();
+        const threshold = getUTCStartOfToday();
         // Dozvoljavamo 12h tolerancije za globalne vremenske razlike
         threshold.setUTCHours(threshold.getUTCHours() - 12);
         return date >= threshold;

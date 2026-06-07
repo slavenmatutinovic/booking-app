@@ -96,7 +96,9 @@ export const updateBooking = async (
             SELECT id FROM "Apartment" WHERE id = ${finalApartmentId} FOR UPDATE
           `;
 
-          if (await findConflictingBooking(tx, finalApartmentId, finalStartDate, finalEndDate)) {
+          if (
+            await findConflictingBooking(tx, finalApartmentId, finalStartDate, finalEndDate, id)
+          ) {
             throw new Error('BOOKING_CONFLICT');
           }
 

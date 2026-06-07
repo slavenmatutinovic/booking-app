@@ -38,7 +38,7 @@ import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { createApartmentSchema, updateApartmentSchema } from '../validators/apartment.validator';
-import { appCache, CACHE_KEYS } from '../utils/cache';
+import { appCache, CACHE_KEYS, invalidateApartmentCache } from '../utils/cache';
 
 // Tip za raw SQL upit — Prisma ne može zaključati specifičan red kroz ORM sintaksu
 type ApartmentRow = { id: string };
@@ -323,7 +323,7 @@ export const updateApartment = async (
     res.json({ message: 'Apartman je uspešno ažuriran', apartment });
 
     // INVALIDACIJA KEŠA — briše se stari niz, novi će se učitati pri sledećem GET pozivu
-    appCache.del(CACHE_KEYS.APARTMENTS);
+    invalidateApartmentCache(safeId);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       res.status(404).json({ error: 'Apartman nije pronađen.' });

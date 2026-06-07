@@ -16,8 +16,15 @@ const TEST_PAYLOAD = {
 };
 
 // Ako tvoja ruta zahtijeva admin login, ovde stavi autentifikacioni kolačić (token) koji uzmeš iz browsera
-const COOKIE_HEADER =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbXBlc2ZrdmkwMDAwZmt0dGtlY2gzMjR4Iiwicm9sZSI6IkFETUlOIiwidG9rZW5WZXJzaW9uIjozNSwiaWF0IjoxNzc5OTgzOTg4LCJleHAiOjE3Nzk5OTExODh9.fh8GQ2n_70DMBkmPcb8pjHHW8mwfCloH3tA94PS9e84eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjbXBlc2ZrdmkwMDAwZmt0dGtlY2gzMjR4Iiwicm9sZSI6IkFETUlOIiwidG9rZW5WZXJzaW9uIjozNSwiaWF0IjoxNzc5OTkxODY1LCJleHAiOjE3Nzk5OTkwNjV9.d6aYGWe1FOuktBEPh_uZTysOv8AWZCE284c3gJip_Bs';
+const COOKIE_HEADER = process.env.TEST_ADMIN_TOKEN || '';
+
+if (!COOKIE_HEADER) {
+  console.error('\n❌ CRITICAL EXCLUSION FAULT: Token credential initialization failed.');
+  console.error(
+    '👉 Molimo vas da postavite ispravan TEST_ADMIN_TOKEN u .env.test fajl pre pokretanja testa!\n',
+  );
+  process.exit(1);
+}
 
 async function runConcurrencyTest() {
   console.log(`🚀 Pokrećem stres test: Ispaljujem ${TOTAL_REQUESTS} istovremenih zahtjeva...`);

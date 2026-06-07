@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { createApartmentRateSchema } from '../validators/apartment.validator';
 import { logger } from '../utils/logger';
-import { appCache, CACHE_KEYS } from '../utils/cache';
+import { appCache, invalidateApartmentCache } from '../utils/cache';
 import { Prisma } from '@prisma/client';
 
 /**
@@ -37,6 +37,7 @@ export const createApartmentRate = async (
         // ✅ ISPRAVLJENO: Koristimo stroge operatore (lt/gt) umesto inkluzivnih (lte/gte).
         // Logika preklapanja glasi: (Postojeći_Start < Novi_End) AND (Postojeći_Kraj > Novi_Start).
         // Ovo sprečava lažne greške (konflikte) kada se sezone nadovezuju dan za danom.
+        capacity,
         startDate: { lt: endDate },
         endDate: { gt: startDate },
       },
@@ -63,20 +64,13 @@ export const createApartmentRate = async (
       },
     });
 
-    // 🧹 FLUSH SYSTEM CACHES:
-    // Because single apartment views cache booking and pricing details for 30 minutes,
-    // we drop the cached snapshot to make sure the new pricing matrix takes effect instantly.
-    appCache.del(`apartment:${apartmentId}`);
+    invalidateApartmentCache(apartmentId);
     logger.info({ rateId: newRate.id, apartmentId }, '✅ Sezonski cenovnik uspešno sačuvan');
 
     res.status(201).json({
       message: 'Sezonski cenovnik uspešno kreiran.',
       rate: newRate,
     });
-
-    // 🛡️ Čišćenje keša nakon brisanja cene
-    appCache.del(`apartment_rates:${apartmentId}`);
-    appCache.del(CACHE_KEYS.APARTMENTS); // Čisti globalnu listu za kalendar
   } catch (error) {
     logger.error({ err: error }, '❌ Greška unutar createApartmentRate kontrolera');
     next(error);
@@ -113,9 +107,8 @@ export const deleteApartmentRate = async (
     });
 
     // 3. 🛡️ SELEKTIVNA INVALIDACIJA KEŠA: Izbacujemo snapshot tog apartmana iz RAM-a
-    appCache.del(`apartment:${rate.apartmentId}`);
+    invalidateApartmentCache(rate.apartmentId);
     // Takođe invalidiramo opštu listu apartmana za kalendar kako bi povukao sveže cene
-    appCache.del(CACHE_KEYS.APARTMENTS);
 
     logger.info({ rateId: id, apartmentId: rate.apartmentId }, '🗑️ Sezonska cena uspešno obrisana');
     res.json({ message: 'Sezonska cena je uspešno obrisana.' });
@@ -150,8 +143,7 @@ export const updateApartmentRate = async (
     });
 
     // 2. 🛡️ INVALIDACIJA KEŠA: Čistimo memoriju za taj apartman i globalnu listu
-    appCache.del(`apartment:${updatedRate.apartmentId}`);
-    appCache.del(CACHE_KEYS.APARTMENTS);
+    invalidateApartmentCache(updatedRate.apartmentId);
 
     logger.info(
       { rateId: id, apartmentId: updatedRate.apartmentId, newPrice: updatedRate.price },

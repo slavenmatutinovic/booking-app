@@ -149,13 +149,14 @@ export function useCalendarData({
           return {
             id: b.id,
             apartmentId: b.apartmentId,
-            start: b.startDate.split('T')[0],
-            end: b.endDate.split('T')[0],
+            start: b.startDate ? b.startDate.split('T')[0] : '',
+            end: b.endDate ? b.endDate.split('T')[0] : '',
             guest: b.guest || 'Gost',
             email: b.email,
             phone: b.phone,
             color: PALETTE[currentColorIdx % PALETTE.length],
             totalPrice: b.totalPrice,
+            capacity: b.capacity,
           };
         });
 

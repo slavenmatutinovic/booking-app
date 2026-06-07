@@ -22,19 +22,20 @@ export const getPendingRequests = async (
   );
 
   try {
+    // 1. Čitamo keš ključ 'requests:pending'
     const cachedRequests = appCache.get(CACHE_KEYS.PENDING_REQUESTS);
     if (cachedRequests) {
       res.json(cachedRequests);
       return;
     }
-
+    // 2. Ako nema u kešu, čitamo iz baze sve zahteve sa statusom na čekanju
     const requests = await prisma.reservationRequest.findMany({
       where: { status: 'PENDING_APPROVAL' },
       include: { apartment: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
-
-    appCache.set(CACHE_KEYS.PENDING_REQUESTS, requests, 600);
+    // 3. 🎯 PUNJENJE KEŠA: Upisujemo listu zahteva u keš
+    appCache.set(CACHE_KEYS.PENDING_REQUESTS, requests, 300); // 5 minuta (300 sekundi)
     res.json(requests);
   } catch (error) {
     logger.error({ err: error }, '❌ getPendingRequests — greška pri listanju zahteva');

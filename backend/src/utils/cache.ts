@@ -65,3 +65,19 @@ export const getCookieOptions = () => {
     sameSite: isProduction ? ('strict' as const) : ('lax' as const),
   };
 };
+
+/**
+ * 🧹 CENTRALIZOVANA EVIKCIJA KEŠA ZA APARTMANE
+ * ✅ USKLAĐENO: Briše makro-liste i selektivne pojedinačne apartmane hronološki.
+ * Osigurava da se klijentske i admin izmene trenutno odraze na svim endpointima.
+ */
+export function invalidateApartmentCache(apartmentId?: string): void {
+  // 1. Ako je prosleđen ID, čistimo specifične instance i pripadajuće stope
+  if (apartmentId && typeof apartmentId === 'string') {
+    appCache.del(`apartment:${apartmentId}`);
+    appCache.del(`apartment_rates:${apartmentId}`);
+  }
+
+  // 2. Trajno čistimo krovnu listu svih apartmana da nateramo re-fetch iz baze
+  appCache.del(CACHE_KEYS.APARTMENTS);
+}

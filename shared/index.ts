@@ -83,6 +83,7 @@ export interface ApiBooking {
   status: BookingStatus;
   totalPrice: number;
   apartment?: { id: string; name: string };
+  capacity: number;
 }
 
 /**
