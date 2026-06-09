@@ -9,7 +9,7 @@ import { Mutex } from 'async-mutex';
 import { sendNewRequestToAdmin, sendRequestReceivedToGuest } from '../utils/emailService';
 import { env } from '../config/env';
 import { findConflictingBooking } from '../utils/bookingConflict';
-import { normalizeToUTCMidnight } from '../utils/dateUtils';
+import { normalizeToUTCMidnight, parseStringToUTCDate } from '../utils/dateUtils';
 
 // Centralna mapa katanaca u memoriji servera (ApartmentId -> Mutex katanac)
 const apartmentLocks = new Map<string, Mutex>();
@@ -62,10 +62,11 @@ export const createBookingRequest = async (
       startDate: string | Date;
       endDate: string | Date;
     };
-
     // 🔒 100% STRIKTAN UTC: Normalizujemo dolazne datume pre ulaska u bazu
-    const utcStartDate = normalizeToUTCMidnight(new Date(startDate));
-    const utcEndDate = normalizeToUTCMidnight(new Date(endDate));
+
+    const utcStartDate = normalizeToUTCMidnight(parseStringToUTCDate(startDate));
+
+    const utcEndDate = normalizeToUTCMidnight(parseStringToUTCDate(endDate));
 
     const emailTimeout = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 sata u ms
     const token = randomUUID();
@@ -100,7 +101,7 @@ export const createBookingRequest = async (
       });
     });
 
-    const verificationLink = `${process.env.BACKEND_URL || 'http://localhost:4000'}/api/bookings/verify?token=${token}`;
+    const verificationLink = `${env.BACKEND_URL}/api/bookings/verify?token=${token}`;
 
     // Fire & Forget email slanje sa obaveznim osiguranjem Promise-a od nepostojećih mockova
     const guestEmailPromise = sendRequestReceivedToGuest({
@@ -278,7 +279,7 @@ export const verifyReservationEmail = async (
       <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
         <h1 style="color: #ef4444;">Zahtev odbijen</h1>
         <p style="color: #4b5563;">Izabrani termin je u međuvremenu zauzet. Molimo Vas izaberite drugi datum.</p>
-        <a href="${env.BACKEND_URL || 'http://localhost:4000'}" style="color: #2563eb; text-decoration: underline;">Nazad na kalendar</a>
+        <a href="${env.FRONTEND_URL}" style="color: #2563eb; text-decoration: underline;">Nazad na kalendar</a>
       </div>
     `);
       return;

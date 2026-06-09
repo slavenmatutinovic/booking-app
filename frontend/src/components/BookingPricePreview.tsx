@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
-import { calculateClientDynamicPrice } from '../utils/pricingCalculator';
+import { calculateStayPriceShared } from '../../../shared/pricing';
 import { format } from 'date-fns';
 import { ApartmentRateData } from '../../../shared';
+import { parseDateStr } from '../utils/dates';
 
 interface BookingPricePreviewProps {
+  activeRates: ApartmentRateData[];
   startDate: string; // "YYYY-MM-DD"
   endDate: string; // "YYYY-MM-DD"
-  activeRates: ApartmentRateData[];
   capacity: number;
 }
 
@@ -17,13 +18,68 @@ export function BookingPricePreview({
   capacity,
 }: BookingPricePreviewProps) {
   // Memoize calculation loops to prevent unnecessary recalibration during re-renders
+  // 🎯 JEDINSTVENI MEMO: Čist, bez redundantnih zavisnosti i bez skrivanja fatalnih grešaka
   const priceCalculation = useMemo(() => {
     if (!startDate || !endDate) return null;
-    return calculateClientDynamicPrice(startDate, endDate, activeRates, 0.0, capacity);
+
+    const start = parseDateStr(startDate);
+    const end = parseDateStr(endDate);
+    const totalNights = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+
+    if (totalNights <= 0) return null;
+
+    try {
+      // Pozivamo tvoj shared kod – ako fali cena, ovde momentalno puca izvršavanje!
+      // 🔥 NEMA DUPLIRANJA LOGIKE: Prosleđujemo true i dobijamo kompletan breakdown iz shared-a
+      const result = calculateStayPriceShared({
+        rates: activeRates,
+        startDateInput: startDate,
+        totalNights,
+        bookingCapacity: capacity,
+        returnBreakdown: true,
+      }) as {
+        totalPrice: number;
+        averagePricePerNight: number;
+        breakdown: { dateStr: string; price: number }[];
+      };
+
+      return { ...result, totalNights, error: null };
+    } catch (err: unknown) {
+      // ✅  Hvata se stroga poruka i čuva se broj noćenja kako komponenta ne bi nestala
+      const msg = err instanceof Error ? err.message : 'Greška pri računanju cene.';
+      return {
+        totalPrice: 0,
+        totalNights, // Čuvamo broj noćenja da bi barijera propustila render greške
+        averagePricePerNight: 0,
+        breakdown: [], // Prazan niz samo da zadovoljimo TypeScript strukturu
+        error: msg,
+      };
+    }
   }, [startDate, endDate, activeRates, capacity]);
 
-  if (!priceCalculation || priceCalculation.totalNights === 0) {
+  if (!priceCalculation || priceCalculation.totalNights <= 0) {
     return null;
+  }
+
+  // 🚨 VIZUELNI FAIL-FAST: Ako objekat sadrži grešku, ODMAH prekidamo standardni render
+  // i ispisujemo uočljivi crveni blok. Nema šanse da se prikaže pogrešna ili nulta cena!
+  if (priceCalculation.error) {
+    return (
+      <div
+        className="price-preview-error"
+        style={{
+          padding: '12px',
+          background: '#fef2f2',
+          borderRadius: '6px',
+          border: '1px solid #fca5a5',
+          color: '#991b1b',
+          fontSize: '13px',
+        }}
+      >
+        <span style={{ fontWeight: 'bold' }}>⚠️ Nemoguće izračunati cenu:</span>
+        <div style={{ marginTop: '4px', fontStyle: 'italic' }}>{priceCalculation.error}</div>
+      </div>
+    );
   }
 
   return (

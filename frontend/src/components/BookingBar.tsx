@@ -117,12 +117,23 @@ const BookingBarComponent = ({
       startX: e.clientX,
       originalStart: parseDateStr(b.start),
       originalEnd: parseDateStr(b.end),
+      currentStartStr: b.start, // Početni datum kao string
+      currentEndStr: b.end, // Krajnji datum kao string
+      currentLivePrice: Number(b.totalPrice),
+      capacity: b.capacity,
     });
   };
 
   // Rukovanje desnim klikom (Context Menu) za brisanje
   const handleContextMenu = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!canEdit || isDeleting) return;
+
+    // 🎯 POPRAVKA: Ako je desni klik opalio direktno na "X" dugme,
+    // prekidamo funkciju jer "X" gumb već ima svoj onClick confirm.
+    const target = e.target as HTMLElement;
+    if (target.classList.contains('booking-delete')) {
+      return;
+    }
     e.preventDefault();
     const hasConfirmation = window.confirm(
       `Da li ste sigurni da želite da obrišete rezervaciju za gosta "${b.guest}"?`,

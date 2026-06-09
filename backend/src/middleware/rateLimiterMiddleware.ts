@@ -4,17 +4,13 @@
 import { Request, Response } from 'express';
 import rateLimit, { Options, ipKeyGenerator } from 'express-rate-limit';
 import { logger } from '../utils/logger';
+import { env } from '../config/env'; // Tvoj osigurani env čuvar okruženja
 
-/**
- * Custom type enforcement structure to safely access optional authentication parameters
- * without breaking strict compilation rules or introducing forbidden 'any' types.
- */
-interface AuthenticatedRequestContext extends Request {
-  user?: {
-    userId: string;
-    role: 'ADMIN' | 'VIEWER';
-  };
-}
+// 🔒 Zajednička funkcija za preskakanje validacije (Ujednačena za sve limitere u aplikaciji)
+// Više ne gleda NODE_ENV, već traži eksplicitnu komandu iz .env fajla!
+const shouldSkipRateLimit = (): boolean => {
+  return env.DISABLE_RATE_LIMITER === true;
+};
 
 /**
  * 🔒 IDENTITY-AWARE RATE LIMITER
@@ -33,39 +29,30 @@ export const createIdentityRateLimiter = (options: {
     standardHeaders: true, // Return standard rate limit info in the Space-Limit headers
     legacyHeaders: false, // Disable X-RateLimit-* header representations
 
-    // ✅ FIXED: Safely skip rate limiting blocks when process.env.NODE_ENV registers as 'test'.
-    // This allows subsequent sequential test blocks (like STRES-05 and STRES-06) to execute
-    // without catching 429 errors from previous concurrency bursts.
-    skip: (): boolean => {
-      const globalEnv = (globalThis as Record<string, unknown>).process as
-        | Record<string, unknown>
-        | undefined;
-      const envMatrix =
-        globalEnv?.env && typeof globalEnv.env === 'object'
-          ? (globalEnv.env as Record<string, string>)
-          : {};
-      return envMatrix.NODE_ENV === 'test';
-    },
+    // ✅ FIXED (BUG-08): Potpuno izbačeno rizično skeniranje NODE_ENV === 'test'!
+    // Sada se koristi tvoja centralizovana i bezbedna 'shouldSkipRateLimit' funkcija
+    skip: shouldSkipRateLimit,
 
-    // 🎯 THE CRITICAL REALIGNMENT: Functional Key Generator
+    // 🎯 THE CRITICAL REALIGNMENT: Functional Key Generator (Bez novih interfejsa i bez 'any')
     keyGenerator: (req: Request): string => {
-      const authReq = req as AuthenticatedRequestContext;
+      // Koristimo Record<string, unknown> za čistu i legalnu TypeScript proveru uloga
+      const rawUser = (req.user as Record<string, unknown>) || undefined;
+      const userId = rawUser && typeof rawUser.userId === 'string' ? rawUser.userId : undefined;
 
-      if (authReq.user && typeof authReq.user.userId === 'string' && authReq.user.userId) {
+      if (userId) {
         // Logged-in tracking: bound permanently to the specific user entity context
-        return `rate:user:${authReq.user.userId}`;
+        return `rate:user:${userId}`;
       }
 
       // Guest tracking fallback: bound to network topological IP addresses
       // Ovo automatski normalizuje IPv4 i bezbedno maskira IPv6 pod-mreže (/64)
-      const clientIp = req.ip || 'unknown';
-      return ipKeyGenerator(clientIp);
+      return ipKeyGenerator(req.ip || 'unknown');
     },
 
     // Executed whenever a specific structural execution track breaches boundaries
     handler: (req: Request, res: Response, _next, options: Options): void => {
-      const authReq = req as AuthenticatedRequestContext;
-      const keyId = authReq.user?.userId ? `Korisnik ID: ${authReq.user.userId}` : `IP: ${req.ip}`;
+      const rawUser = (req.user as Record<string, unknown>) || undefined;
+      const keyId = rawUser?.userId ? `Korisnik ID: ${rawUser.userId}` : `IP: ${req.ip}`;
 
       logger.warn(
         { keyId, path: req.originalUrl, windowMs: options.windowMs },
@@ -94,4 +81,20 @@ export const sensitiveAuthRateLimiter = createIdentityRateLimiter({
   windowMs: 15 * 60 * 1000, // 15 Minute lockout block duration window
   max: 5, // Restrict authorization pipelines to a maximum of 5 attempts
   message: 'Previše neuspešnih pokušaja prijave. Pristup je privremeno blokiran na 15 minuta.',
+});
+
+// Pametna hibridna globalna politika koja štiti ceo API (Sprečava NAT blokade)
+export const globalApiRateLimiter = createIdentityRateLimiter({
+  windowMs: 15 * 60 * 1000, // 15 minuta prozor
+  max: 300, // Maksimalno 300 zahteva po korisniku/IP adresi u 15 minuta
+  message: 'Previše mrežnih zahteva. Pristup je privremeno ograničen na 15 minuta.',
+});
+
+// Pametna hibridna politika za zahteve gostiju (Rešava BUG-15)
+// Dozvoljava maksimalno 5 zahteva u 10 minuta po korisniku ili IP adresi
+export const standaloneRequestsLimiter = createIdentityRateLimiter({
+  windowMs: 10 * 60 * 1000, // 10 minuta prozor
+  max: 5, // Maksimalno 5 slanja zahteva
+  message:
+    'Previše poslatih zahteva za rezervaciju. Molimo sačekajte 10 minuta pre sledećeg pokušaja.',
 });

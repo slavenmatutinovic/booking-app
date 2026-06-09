@@ -2,7 +2,7 @@
 // 🗄️ backend/src/utils/dateUtils.ts (Optimizovano pomoću date-fns u UTC duhu)
 // =============================================================================
 import { differenceInDays } from 'date-fns';
-
+import { parseUTCDate } from '../../../shared/index';
 /**
  * Vraća početak današnjeg dana u čistom UTC-u. DST-safe.
  */
@@ -45,35 +45,4 @@ export function calcNightsUTC(start: Date, end: Date): number {
   return differenceInDays(cleanEnd, cleanStart);
 }
 
-export function parseStringToUTCDate(input: unknown): Date {
-  // ✅ DODATO: Ako je ulaz već Date objekat, samo ga izvlačimo i normalizujemo
-  if (input instanceof Date) {
-    if (isNaN(input.getTime())) {
-      throw new Error('INVALID_DATE_OBJECT');
-    }
-    return new Date(
-      Date.UTC(input.getUTCFullYear(), input.getUTCMonth(), input.getUTCDate(), 0, 0, 0, 0),
-    );
-  }
-
-  if (typeof input !== 'string') {
-    throw new Error('INVALID_DATE_INPUT');
-  }
-
-  // Ostatak logike sa .split('T') ostaje isti...
-  const cleanStr = input.split('T')[0] ?? '';
-  const parts = cleanStr.split('-');
-  if (parts.length !== 3) {
-    throw new Error('INVALID_DATE_FORMAT');
-  }
-
-  const year = parseInt(parts[0] ?? '0', 10);
-  const month = parseInt(parts[1] ?? '0', 10);
-  const day = parseInt(parts[2] ?? '0', 10);
-
-  if (isNaN(year) || isNaN(month) || isNaN(day) || year === 0 || month === 0 || day === 0) {
-    throw new Error('INVALID_DATE_COMPONENTS');
-  }
-
-  return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0));
-}
+export const parseStringToUTCDate = (dateInput: string | Date): Date => parseUTCDate(dateInput);

@@ -3,6 +3,7 @@ import { getPendingRequests, approveBookingRequest, rejectBookingRequest } from 
 import { fmtShort } from '../utils/dates';
 import { ReservationRequest } from '../../../shared/index';
 import { Link } from 'react-router-dom';
+import React from 'react';
 
 // 🟢 Helper: Computes localized human-readable hours remaining until expiration
 function getRemainingTimeLabel(expiresAtStr: string | Date): { text: string; isUrgent: boolean } {
@@ -35,6 +36,9 @@ export function AdminDashboard() {
 
   const REFRESH_INTERVAL_MS = 30_000; // Osvežava svakih 30 sekundi
 
+  // 🎯 FIX: Tracks component mount state across async mutation pipelines
+  const isMountedRef = React.useRef(true);
+
   useEffect(() => {
     let active = true;
 
@@ -65,6 +69,7 @@ export function AdminDashboard() {
     // Structural cleanup phase completely stops trace execution leaks if the admin switches tabs
     return () => {
       active = false;
+      isMountedRef.current = false; // Prevents pending mutation updates
       clearInterval(intervalId);
     };
   }, []); // 📊 Array stays dead empty since the logic uses local encapsulated closures
@@ -74,13 +79,18 @@ export function AdminDashboard() {
     try {
       setProcessingId(id);
       await approveBookingRequest(id);
+
+      // 🎯 FIX: Check lifecycle safely before mutating state
+      if (!isMountedRef.current) return;
       alert('✅ Zahtev je uspešno odobren i ubačen u kalendar!');
       setRequests((prev) => prev.filter((req) => req.id !== id));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Neuspešno odobravanje zahteva.';
       alert(`⚠️ Greška: ${msg}`);
     } finally {
-      setProcessingId(null);
+      if (isMountedRef.current) {
+        setProcessingId(null);
+      }
     }
   };
   const handleReject = async (id: string) => {
@@ -94,12 +104,17 @@ export function AdminDashboard() {
     try {
       setProcessingId(`reject-${id}`);
       await rejectBookingRequest(id);
+
+      // 🎯 FIX: Check lifecycle safely before mutating state
+      if (!isMountedRef.current) return;
       setRequests((prev) => prev.filter((req) => req.id !== id));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Neuspešno odbijanje zahteva.';
       alert(`⚠️ Greška: ${msg}`);
     } finally {
-      setProcessingId(null);
+      if (isMountedRef.current) {
+        setProcessingId(null);
+      }
     }
   };
 

@@ -117,6 +117,8 @@ async function main() {
         startDate: new Date(b.start), // Konverzija stringa u DateTime objekat
         endDate: new Date(b.end), // Konverzija stringa u DateTime objekat
         status: 'CONFIRMED', // Podrazumevani status iz enuma
+        totalPrice: 0,
+        capacity: 2,
       },
     });
 

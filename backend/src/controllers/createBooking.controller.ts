@@ -3,9 +3,9 @@ import { logger } from '../utils/logger';
 import { prisma } from '../config/prisma';
 import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingConfirmation } from '../utils/emailService';
-import { invalidateBookingCache } from '../utils/cache';
+import { appCache, invalidateBookingCache,CACHE_KEYS } from '../utils/cache';
 import { parseStringToUTCDate, normalizeToUTCMidnight, calcNightsUTC } from '../utils/dateUtils';
-import { findConflictingBooking } from '../utils/bookingConflict';
+import { findConflictingBooking, calculateStayPrice } from '../utils/bookingConflict';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
 type ApartmentRow = { id: string };
@@ -19,6 +19,7 @@ export const createBooking = async (
   logger.debug({ body: req.body, userId: req.user?.userId }, '📝 POST /api/bookings');
 
   // 🚀 1. PROVERAVAMO DA LI ODOBRAVAMO POSTOJEĆI ZAHTEV GOSTA
+  const requestBody = req.body as Record<string, unknown>;
   const { requestId } = req.body;
   let bookingData: {
     apartmentId: string;
@@ -28,8 +29,19 @@ export const createBooking = async (
     startDate: Date;
     endDate: Date;
     createdAt?: Date;
+    capacity: number;
   };
   try {
+    // 🛡️ STROGA KONTROLA KAPACITETA SA FRONTENDA (Nema više fallbacks!)
+    const rawCapacity = Number(requestBody.capacity);
+    if (isNaN(rawCapacity) || rawCapacity <= 0 || !Number.isInteger(rawCapacity)) {
+      res.status(400).json({
+        error: 'Kritična greška u validaciji sistema.',
+        details:
+          'Izabrani kapacitet (broj osoba) nije validan. Molimo osvežite stranicu i pokušajte ponovo.',
+      });
+      return;
+    }
     if (requestId) {
       // Admin je kliknuo "Odobri" na tabeli zahteva
       const request = await prisma.reservationRequest.findUnique({
@@ -49,14 +61,23 @@ export const createBooking = async (
         phone: request.phone,
         startDate: request.startDate,
         endDate: request.endDate,
-        createdAt: request.createdAt, // Čuvamo originalni datum kreiranja zahteva u rezervaciji za evidenciju
+        createdAt: request.createdAt,
+        capacity: rawCapacity, // Čuvamo originalni datum kreiranja zahteva u rezervaciji za evidenciju
       };
     } else {
       // Standardno ručno kreiranje od strane admina — pokrećemo Zod validaciju unosa
 
       // 🔒 SADA JE OVDE KONAČNA POBEDA: Podaci su već 100% validirani i transformisani u Date objekte
       // od strane našeg pametnog uslovnog middleware-a na ruti! Čitamo ih direktno iz req.body.
-      bookingData = req.body;
+      bookingData = {
+        apartmentId: String(requestBody.apartmentId || ''),
+        guest: String(requestBody.guest || ''),
+        email: String(requestBody.email || ''),
+        phone: requestBody.phone ? String(requestBody.phone) : null,
+        startDate: new Date(requestBody.startDate as string),
+        endDate: new Date(requestBody.endDate as string),
+        capacity: rawCapacity, // Koristimo strogo proveren kapacitet sa frontenda i ovde
+      };
     }
 
     const utcStartDate = normalizeToUTCMidnight(parseStringToUTCDate(bookingData.startDate));
@@ -101,24 +122,16 @@ export const createBooking = async (
         const totalNights = calcNightsUTC(utcStartDate, utcEndDate);
         let serverCalculatedTotalPrice = 0;
 
-        for (let i = 0; i < totalNights; i++) {
-          const trackingDay = new Date(utcStartDate);
-          trackingDay.setDate(utcStartDate.getDate() + i);
+        // 🎯 Koristimo bezbedno upakovani kapacitet sa frontenda (Garantuje tačan proračun BUG-03)
+        const bookingCapacity = bookingData.capacity;
 
-          // Tražimo sezonsku cenu za trenutni dan u petlji
-          const matchingRate = rates.find((rate) => {
-            const rateStart = new Date(rate.startDate);
-            const rateEnd = new Date(rate.endDate);
-            return trackingDay >= rateStart && trackingDay <= rateEnd;
-          });
-
-          // 🛡️ Stroga provera: Ako termin nema cenu, prekidamo upis i bacamo namensku grešku
-          if (!matchingRate) {
-            throw new Error(`MISSING_RATE_FOR_DATE:${trackingDay.toISOString().split('T')[0]}`);
-          }
-
-          serverCalculatedTotalPrice += Number(matchingRate.price);
-        }
+        // 🎯 POZIV ZAJEDNIČKE FUNKCIJE: Računamo cenu munjevito i 100% bezbedno!
+        serverCalculatedTotalPrice = calculateStayPrice(
+          rates,
+          utcStartDate,
+          totalNights,
+          bookingCapacity,
+        );
 
         // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
         const newBooking = await tx.booking.create({
@@ -131,6 +144,7 @@ export const createBooking = async (
             endDate: utcEndDate,
             status: 'CONFIRMED',
             totalPrice: serverCalculatedTotalPrice,
+            capacity: bookingCapacity,
             createdAt: bookingData.createdAt ?? new Date(),
           },
           include: { apartment: { select: { id: true, name: true } } },
@@ -155,6 +169,7 @@ export const createBooking = async (
     // 🚀 [KESH INVALIDACIJA] — OVDE JE TAČNO MESTO ZA ČIŠĆENJE
     // Pošto je transakcija prošla, uzimamo sve ključeve i čistimo isključivo rezervacije
     invalidateBookingCache();
+    appCache.del(CACHE_KEYS.PENDING_REQUESTS);
 
     logger.info(
       { bookingId: booking.id, totalPrice: booking.totalPrice },

@@ -19,6 +19,14 @@ router.get('/', async (req: Request, res: Response) => {
     // 1. Aktivna provera konekcije sa Postgres bazom (Brzi ping od <2ms)
     await prisma.$queryRaw`SELECT 1`;
 
+    if (env.NODE_ENV === 'production') {
+      res.status(200).json({
+        status: 'UP',
+        timestamp: currentTimestamp,
+      });
+      return;
+    }
+
     // 2. Uspešan odgovor sa dijagnostikom
     return res.status(200).json({
       status: 'UP',

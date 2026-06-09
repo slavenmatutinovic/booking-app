@@ -18,6 +18,7 @@
 // =============================================================================
 // §1  🔐 AUTENTIKACIJA I ROLE
 // =============================================================================
+import { z } from 'zod';
 
 export type UserRole = 'ADMIN' | 'VIEWER';
 
@@ -99,6 +100,7 @@ export interface CreateBookingPayload {
   startDate: string;
   endDate: string;
   totalPrice?: number;
+  capacity: number;
 }
 
 /**
@@ -181,3 +183,79 @@ export const PALETTE: string[] = [
 
 /** Maksimalan broj dana u jednoj rezervaciji */
 export const MAX_BOOKING_DAYS = 90;
+
+/**
+ * Globalni strogi parser datuma — Single Source of Truth za celi monorepo.
+ * Garantuje identičnu interpretaciju UTC ponoći bez ikakvih vremenskih pomaka.
+ * Ako je unos prazan, lošeg formata ili kalendarski nepostojeći, odmah baca grešku.
+ *
+ * @param dateInput - String (YYYY-MM-DD ili ISO oblik) ili Date objekt
+ * @throws Error - Ako datum nije kalendarski ispravan (Fail-Fast)
+ */
+export function parseUTCDate(dateInput: string | Date | undefined | null): Date {
+  // 1. BARIJERA: Stroga zabrana praznih ili nedefinisanih unosa
+  if (!dateInput) {
+    throw new Error('DATE_PARSING_FAILED: Datum je obavezan i ne može biti prazan.');
+  }
+
+  // 2. BARIJERA: Ako je već prosleđen Date objekat, čistimo ga na UTC ponoć tog dana
+  if (dateInput instanceof Date) {
+    if (isNaN(dateInput.getTime())) {
+      throw new Error('DATE_PARSING_FAILED: Prosleđeni Date objekat je nevalidan.');
+    }
+    return new Date(
+      Date.UTC(dateInput.getUTCFullYear(), dateInput.getUTCMonth(), dateInput.getUTCDate()),
+    );
+  }
+
+  // 3. IZDVAJANJE STRUNGA: Uzimamo samo YYYY-MM-DD deo (čak i ako stigne puni ISO string sa vremenom)
+  const cleanStr = String(dateInput).split('T')[0] || '';
+  const parts = cleanStr.split('-');
+
+  // 4. BARIJERA STRUKTURE: Provera da li imamo tačno tri komponente (godina-mesec-dan)
+  if (parts.length !== 3) {
+    throw new Error(
+      `DATE_PARSING_FAILED: Neispravan format [${dateInput}]. Očekuje se YYYY-MM-DD.`,
+    );
+  }
+
+  // 5. DESTRUKTURIRANJE: Sigurno mapiranje u tuple (string trojac) koje uklanja 'undefined' upozorenje kompajlera
+  const [yearStr, monthStr, dayStr] = parts as [string, string, string];
+
+  // 6. KONVERZIJA: Stroga pretvorba pomoću Number() konstruktora (brže i rigoroznije od parseInt)
+  const year = Number(yearStr);
+  const month = Number(monthStr) - 1; // JS meseci unutar Date.UTC idu od 0 do 11
+  const day = Number(dayStr);
+
+  // 7. BARIJERA TIPA: Provera da li su sve komponente uspešno pretvorene u brojeve
+  if (isNaN(year) || isNaN(month) || isNaN(day)) {
+    throw new Error(
+      `DATE_PARSING_FAILED: Komponente datuma nisu validni brojevi za unos [${dateInput}].`,
+    );
+  }
+
+  // Inicijalizujemo privremeni UTC datum
+  const parsedDate = new Date(Date.UTC(year, month, day));
+
+  // 8. LOGIČKA BARIJERA KALENDARA: Sprečava JavaScript da tiho "prelije" loš datum u sledeći mesec
+  // (Npr. ako korisnik pošalje 31. april, JS bi to inače tiho pretvorio u 1. maj)
+  if (
+    parsedDate.getUTCFullYear() !== year ||
+    parsedDate.getUTCMonth() !== month ||
+    parsedDate.getUTCDate() !== day
+  ) {
+    throw new Error(`DATE_PARSING_FAILED: Datum [${dateInput}] kalendarski ne postoji.`);
+  }
+
+  // Vraćamo čist, stopostotno potvrđen UTC Date objekat postavljen na ponoć
+  return parsedDate;
+}
+
+// 🎯 PREBAČENO U SHARED: Tvoj originalni strogi ISO 8601 UTC regex
+export const isoDatetimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+
+// Pomoćna funkcija za dobijanje početka današnjeg dana u UTC-u
+export function getUTCStartOfToday(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+}

@@ -38,7 +38,11 @@ const envSchema = z.object({
     .url({ message: 'BACKEND_URL mora biti validan URL format (npr. https://mojsajt.com)' })
     .default('http://localhost:4000'), // Synchronized with your global port configuration fallback
 
-  FRONTEND_URL: z.url().default('http://localhost:5173'),
+  // ✅ ISPRAVLJENO: Izmenjeno sa z.url() na z.string().url() jer z.url() ne postoji u Zod v4!
+  FRONTEND_URL: z
+    .string()
+    .url({ message: 'FRONTEND_URL mora biti validan URL format.' })
+    .default('http://localhost:5173'),
 
   // ─── Seed lozinka (za db:seed komandu) ───────────────────────────────────
   ADMIN_SEED_PASSWORD: z.string().min(4).optional(),
@@ -80,11 +84,20 @@ const envSchema = z.object({
 
   // Admin email prima kopiju svake rezervacije i otkazivanja
   // Opcionalan — ako nije postavljen, samo gost dobija email
-  ADMIN_EMAIL: z.email({ error: 'ADMIN_EMAIL mora biti validna email adresa' }).optional(),
+  ADMIN_EMAIL: z
+    .string()
+    .refine((val) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val), {
+      message: 'ADMIN_EMAIL mora biti validna email adresa',
+    })
+    .optional(),
+  DISABLE_RATE_LIMITER: z
+    .string()
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 // Parsiramo process.env i izvozimo bezbedan objekat
 export const env = envSchema.parse(process.env);
 
-// Deklaracija globalnog tipa za TypeScript (opciono, ali olakšava rad)
-export type EnvType = z.infer<typeof envSchema>;
+// ✅ ISPRAVLJENO: Koristi se z.output kako bi TypeScript prepoznao transformisani oblik (npr. SMTP_SECURE kao boolean)
+export type EnvType = z.output<typeof envSchema>;

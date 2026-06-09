@@ -60,8 +60,8 @@ interface CreateBookingArgs {
   bookings: FrontendBooking[];
   setBookings: Dispatch<SetStateAction<FrontendBooking[]>>;
   setSelection: (v: null) => void;
-
   isAdmin: boolean;
+  capacity: number;
 }
 
 export const executeCreateBooking = async ({
@@ -74,6 +74,7 @@ export const executeCreateBooking = async ({
   setBookings,
   setSelection,
   isAdmin,
+  capacity,
 }: CreateBookingArgs): Promise<void> => {
   if (!guestName.trim() || !selData) return;
 
@@ -114,6 +115,7 @@ export const executeCreateBooking = async ({
     // i ručno mu lepimo fiksnu UTC ponoć. Vremenska zona više ne može da pomeri datum unazad!
     const finalStartDateStr = `${formatDate(selData.startDate)}T00:00:00.000Z`;
     const finalEndDateStr = `${formatDate(selData.endDate)}T00:00:00.000Z`;
+    const bookingCapacityNumber = Number(capacity);
 
     if (isAdmin) {
       const created = await createBooking({
@@ -122,7 +124,8 @@ export const executeCreateBooking = async ({
         startDate: finalStartDateStr,
         endDate: finalEndDateStr,
         email: email.trim(),
-        phone: phone.trim() || undefined,
+        phone: phone.trim() || null,
+        capacity: bookingCapacityNumber,
       });
 
       // Tvoj postojeći kod za ažuriranje lokalnog stanja rezervacija
@@ -137,7 +140,8 @@ export const executeCreateBooking = async ({
         startDate: finalStartDateStr,
         endDate: finalEndDateStr,
         email: email.trim(),
-        phone: phone.trim() || undefined,
+        phone: phone.trim() || null,
+        capacity: bookingCapacityNumber,
       });
 
       // 🧹 Pošto je ovo samo zahtev koji čeka odobrenje, sklanjamo privremenu traku sa kalendara
@@ -173,14 +177,22 @@ export const executeMoveBooking = async (
   setBookings: Dispatch<SetStateAction<FrontendBooking[]>>,
   fallback: MoveBookingFallback,
 ): Promise<void> => {
-  // Izvlačimo YYYY-MM-DD deo i sklapamo čiste ISO stringove za backend
-  const dateRegex = /(\d{4}-\d{2}-\d{2})/;
-  const matchStart = String(newStart).match(dateRegex);
-  const matchEnd = String(newEnd).match(dateRegex);
+  // 🔒 REŠENJE ZA BUG-19: Pretvaramo stringove u Date objekte radi 100% sigurnosti,
+  // a tvoj 'formatDate' iz njih nepogrešivo izvlači čist "YYYY-MM-DD" bez obzira na ulazni format!
+  const dateStartObj = new Date(newStart);
+  const dateEndObj = new Date(newEnd);
 
-  const cleanStart = matchStart ? matchStart[1] : String(newStart).slice(0, 10);
-  const cleanEnd = matchEnd ? matchEnd[1] : String(newEnd).slice(0, 10);
+  // Defanzivna provera da sprečimo slanje nevalidnih stringova na API ako kalendar vrati loš unos
+  if (isNaN(dateStartObj.getTime()) || isNaN(dateEndObj.getTime())) {
+    toast.error('Greška: Kalendar je vratio nevalidan format datuma.');
+    return;
+  }
 
+  // Koristimo tvoju UTC-safe funkciju da generišemo čist string (Zatvaramo sivu zonu)
+  const cleanStart = formatDate(dateStartObj);
+  const cleanEnd = formatDate(dateEndObj);
+
+  // Sklapamo čiste ISO stringove sa tvojim ispravnim hotelskim ponoćnim sufiksom
   const isoStartString = `${cleanStart}T00:00:00.000Z`;
   const isoEndString = `${cleanEnd}T00:00:00.000Z`;
 

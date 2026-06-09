@@ -65,8 +65,8 @@ model Booking {
   startDate   DateTime
   endDate     DateTime
   status      BookingStatus @default(CONFIRMED)
-  totalPrice  Decimal  @db.Decimal(10, 2)
-
+  totalPrice  Decimal       @db.Decimal(10, 2)
+  capacity     Int         
   createdAt   DateTime      @default(now())
   apartment   Apartment     @relation(fields: [apartmentId], references: [id])
   updatedAt   DateTime      @updatedAt  // DODATI

@@ -59,7 +59,10 @@ import rateLimit from 'express-rate-limit';
 import { updateBooking, deleteBooking } from '../controllers/bookings.controller';
 import { getBookings } from '../controllers/getBookings.controller';
 import { createBooking } from '../controllers/createBooking.controller';
-import { mutationRateLimiter } from '../middleware/rateLimiterMiddleware';
+import {
+  mutationRateLimiter,
+  standaloneRequestsLimiter,
+} from '../middleware/rateLimiterMiddleware';
 import {
   createBookingRequest,
   verifyReservationEmail,
@@ -76,35 +79,10 @@ import {
   createBookingSchema,
   createGuestRequestSchema,
   updateBookingSchema,
-} from '../validators/booking.validator';
-
-// 🛡️ DECOUPLED LIMITER: Declared inside this context to break circular dependency paths
-const standaloneRequestsLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes window profiles
-  max: 30, // Limit each client IP to 30 booking requests per cycle
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Previše poslatih zahteva. Pokušajte ponovo za 15 minuta.' },
-});
+} from '../../../shared/validators';
+import { validateConditionalCreate } from '../validators/booking.validator';
 
 const router = Router();
-
-/**
- * 🔒 KONDICIONALNI MIDDLEWARE ZA KREIRANJE REZERVACIJE
- * Ako zahtev sadrži 'requestId', znači da admin odobrava postojeći zahtev i Zod šema se preskače.
- * Ako nema 'requestId', znači da admin ručno unosi rezervaciju i šema se striktno validira.
- */
-const validateConditionalCreate = (req: Request, res: Response, next: NextFunction) => {
-  // Kastujemo req.body u Record<string, unknown> da izbegnemo labave tipove bez 'any'
-  const body = req.body as Record<string, unknown>;
-
-  if (body && body.requestId) {
-    next(); // Preskačemo Zod validaciju i idemo pravo u kontroler
-  } else {
-    // Pokrećemo standardnu validateBody validaciju za ručni unos podataka
-    validateBody(createBookingSchema)(req, res, next);
-  }
-};
 
 // =============================================================================
 // 🌍 JAVNE RUTE (bez obavezne prijave)

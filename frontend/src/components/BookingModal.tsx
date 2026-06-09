@@ -145,11 +145,14 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
   // Eksplicitna funkcija za zatvaranje koja čisti stanje forme
   const handleClose = () => {
+    const defaultCapacity =
+      availableCapacities && availableCapacities.length > 0 ? Number(availableCapacities[0]) : 1;
+    // Clear inputs and sync state uniformly using the true apartment bounds
+    setLocalCapacity(defaultCapacity);
     setSelection(null);
     setLocalGuestName('');
     setLocalEmail('');
     setLocalPhone('');
-    setLocalCapacity(2);
   };
 
   const handleSubmit = async () => {
@@ -166,15 +169,21 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     );
 
     // Čistimo formu nakon uspešnog kreiranja
+    const defaultCapacity =
+      availableCapacities && availableCapacities.length > 0 ? Number(availableCapacities[0]) : 1;
+
+    setLocalCapacity(defaultCapacity);
     setLocalGuestName('');
     setLocalEmail('');
     setLocalPhone('');
-    setLocalCapacity(2);
   };
 
   const handleKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') handleSubmit();
   };
+
+  // 🛡️ RAČUNAMO PREOSTALI PROSTOR DO DNA EKRANA (100vh - coords.top - sigurna margina za dugme)
+  const dynamicMaxCardHeight = coords.top > 0 ? `calc(100vh - ${coords.top}px - 25px)` : '85vh';
 
   return (
     <div
@@ -187,7 +196,17 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       }}
       onMouseDown={(e) => e.stopPropagation()}
     >
-      <div className="modal-card">
+      <div
+        className="modal-card"
+        style={{
+          maxHeight: dynamicMaxCardHeight,
+          position: 'relative',
+          paddingBottom: '65px', // 🔒 KLJUČ: Pravimo prazan prostor na dnu u koji fiksiramo dugme!
+          boxSizing: 'border-box',
+          overflow: 'hidden',
+          display: 'block', // Radimo u standardnom block režimu da zaobiđemo CSS klase
+        }}
+      >
         {/* ── Header ──────────────────────────────────────────────── */}
         <div className="modal-header">
           <div>
@@ -234,10 +253,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
         {/* ── Napomene po roli ─────────────────────────────────────── */}
         {!currentUser && (
-          <div className="modal-notice modal-notice--info">
-            💡 Prijavite se kao admin za direktno kreiranje rezervacija. Vaš zahtev će biti
-            proslijeđen na odobrenje.
-          </div>
+          <div className="modal-notice modal-notice--info">💡 Vaš zahtev će biti proslijeđen.</div>
         )}
         {currentUser && !isAdmin && (
           <div className="modal-notice modal-notice--viewer">
@@ -280,16 +296,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           maxLength={20}
         />
 
-        {/* ============================================================================= */}
-        {/* 🧮 DINO-OBRAČUN PREDAJA: Dinamički pregled cena po danima i sezonama        */}
-        {/* ============================================================================= */}
-        <BookingPricePreview
-          startDate={selData.startDate.toISOString()} // Prosleđujemo selektovani početak
-          endDate={selData.endDate.toISOString()} // Prosleđujemo selektovani kraj
-          activeRates={activeRates || []} // Niz sezonskih cena prosleđen sa kalendara/apartmana
-          capacity={localCapacity}
-        />
-
         {/* ── Submit dugme ─────────────────────────────────────────── */}
         <button
           className={`btn${localGuestName.trim() && localEmail.trim() && !isCreating ? ' btn-primary' : ' btn-disabled'}`}
@@ -299,6 +305,29 @@ export const BookingModal: React.FC<BookingModalProps> = ({
         >
           {isCreating ? 'Slanje...' : buttonText}
         </button>
+
+        {/* ============================================================================= */}
+        {/* 🧮 DINO-OBRAČUN PREDAJA: Dinamički pregled cena po danima i sezonama        */}
+        {/* ============================================================================= */}
+        <div
+          className="price-preview-secure-container"
+          style={{
+            maxHeight: '140px', // 🔒 Zaključavamo visinu detaljnog obračuna (npr. oko 4-5 redova dana)
+            overflowY: 'auto', // Ako ima 20 dana, skroluje se isključivo unutar ovog malog boksa!
+            border: '1px solid #e5e7eb',
+            borderRadius: '6px',
+            padding: '8px',
+            backgroundColor: '#f9fafb',
+            marginTop: '4px',
+          }}
+        >
+          <BookingPricePreview
+            startDate={selData.startDate.toISOString()} // Prosleđujemo selektovani početak
+            endDate={selData.endDate.toISOString()} // Prosleđujemo selektovani kraj
+            activeRates={activeRates || []} // Niz sezonskih cena prosleđen sa kalendara/apartmana
+            capacity={localCapacity}
+          />
+        </div>
       </div>
     </div>
   );

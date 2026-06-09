@@ -232,10 +232,10 @@ export const approveBookingRequest = async (
 ): Promise<{ message: string; booking: ApiBooking }> => {
   remoteLogger({
     level: 'info',
-    message: `POST /api/bookings/requests/approve — Odobravanje zahteva ${requestId}`,
+    message: `POST /api/bookings/ — Odobravanje zahteva ${requestId}`,
   });
 
-  const response = await apiFetch('bookings/requests/approve', {
+  const response = await apiFetch('bookings', {
     method: 'POST',
     body: JSON.stringify({ requestId }),
   });

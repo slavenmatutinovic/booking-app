@@ -77,14 +77,6 @@ router.get('/:id', getApartmentById);
  */
 router.post('/', requireAuth, requireAdmin, validateBody(createApartmentSchema), createApartment);
 
-router.post(
-  '/rates',
-  requireAuth,
-  requireAdmin,
-  validateBody(createApartmentRateSchema),
-  createApartmentRate,
-);
-
 // =============================================================================
 // 💰 RUTE ZA SEZONSKE CENE (Unutar /api/apartments)
 // =============================================================================

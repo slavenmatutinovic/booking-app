@@ -29,8 +29,6 @@ router.post(
   checkPayloadSize,
   validateBody(frontendLogSchema),
   (req: Request, res: Response): void => {
-    const parseResult = frontendLogSchema.safeParse(req.body);
-
     // Pošto je validateBody uspešno prošao, podaci su 100% provereni i tipizirani unutar req.body
     const { level, message, errorDetails, url } = req.body;
 
@@ -40,10 +38,6 @@ router.post(
       url: url ?? 'Nije prosleđen URL',
       details: typeof errorDetails === 'object' && errorDetails !== null ? errorDetails : {},
     };
-
-    // Dinamički biramo Pino metodu u zavisnosti od ozbiljnosti greške sa frontenda
-    // Koristimo slice(0, 500) kao dodatni sloj zaštite za bazu/fajl logova
-    const safeMessage = message.slice(0, 500);
 
     // Dinamički biramo Pino metodu u zavisnosti od ozbiljnosti greške sa frontenda
     if (level === 'error') {

@@ -13,7 +13,7 @@
 // =============================================================================
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { addDays, differenceInCalendarDays, format, startOfMonth } from 'date-fns';
+import { differenceInCalendarDays } from 'date-fns';
 
 import type { Apartment, ApiBooking } from '../../../shared/index';
 import { PALETTE } from '../../../shared/index';
@@ -97,13 +97,19 @@ export function useCalendarData({
   const [isCreating, setIsCreating] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  // 🔒 REŠENJE: Računamo tačan opseg vidljivih meseci na ekranu
-  // Iz niza 'days' uzimamo prvi i poslednji dan koji admin vidi na kalendaru
-  const firstVisibleDay = days[0] || startDate;
-  const lastVisibleDay = days[days.length - 1] || addDays(startDate, 35);
+  const referenceDate = new Date(startDate);
 
-  const startMonthStr = format(firstVisibleDay, 'yyyy-MM');
-  const endMonthStr = format(lastVisibleDay, 'yyyy-MM');
+  const ms = new Date(
+    Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), 1, 0, 0, 0, 0),
+  );
+
+  // Poslednji dan u mesecu (dan 0 sledećeg meseca) tačno u 23:59:59.999 UTC
+  const me = new Date(
+    Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+  );
+
+  const startMonthStr = `${ms.getUTCFullYear()}-${String(ms.getUTCMonth() + 1).padStart(2, '0')}`;
+  const endMonthStr = `${me.getUTCFullYear()}-${String(me.getUTCMonth() + 1).padStart(2, '0')}`;
 
   const refreshCalendarData = useCallback(
     async (cancelledRef: { current: boolean }): Promise<void> => {
@@ -206,10 +212,10 @@ export function useCalendarData({
     bookings.forEach((b) => {
       const start = parseDateStr(b.start);
       const end = parseDateStr(b.end);
-      const current = new Date(start);
+      const current = new Date(start.getTime());
       while (current <= end) {
         set.add(`${b.apartmentId}:${formatDate(current)}`);
-        current.setDate(current.getDate() + 1);
+        current.setUTCDate(current.getUTCDate() + 1);
       }
     });
     return set;
@@ -217,8 +223,13 @@ export function useCalendarData({
 
   /** Statistike popunjenosti za tekući mesec */
   const stats = useMemo<Stats>(() => {
-    const ms = startOfMonth(startDate);
-    const me = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 0);
+    const referenceDate = new Date(startDate);
+    const ms = new Date(
+      Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth(), 1, 0, 0, 0, 0),
+    );
+    const me = new Date(
+      Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+    );
 
     const monthBookings = bookings.filter((b) => {
       const s = parseDateStr(b.start),
@@ -231,10 +242,14 @@ export function useCalendarData({
         e = parseDateStr(b.end);
       const cs = s < ms ? ms : s;
       const ce = e > me ? me : e;
-      return sum + differenceInCalendarDays(ce, cs) + 1;
+
+      const diffTime = Math.abs(ce.getTime() - cs.getTime());
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      return sum + diffDays;
     }, 0);
 
-    const daysInMonth = me.getDate();
+    const daysInMonth = me.getUTCDate();
     const safeApartmentsCount = apartments?.length || 0;
     const totalSlots = daysInMonth * safeApartmentsCount;
 
@@ -248,7 +263,7 @@ export function useCalendarData({
 
   const createBooking = useCallback(
     async (
-      formData: { guestName: string; email: string; phone: string },
+      formData: { guestName: string; email: string; phone: string; capacity: number },
       selData: SelData | null,
     ) => {
       if (isCreating) return;
@@ -272,6 +287,7 @@ export function useCalendarData({
           setBookings,
           setSelection,
           isAdmin,
+          capacity: formData.capacity,
         });
 
         // ✅ ČIŠĆENJE FORME: Pošto je slanje uspelo, ovde očisti modal / selekciju ako je potrebno

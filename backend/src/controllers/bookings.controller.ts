@@ -22,19 +22,13 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
-import { ApiError, MAX_BOOKING_DAYS } from '../../../shared/index';
+import { ApiError, MAX_BOOKING_DAYS, ApiBooking } from '../../../shared/index';
 import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingCancellation } from '../utils/emailService';
 import { invalidateBookingCache } from '../utils/cache';
 import { findConflictingBooking } from '../utils/bookingConflict';
-
-type BookingRow = {
-  id: string;
-  apartmentId: string;
-  startDate: Date | string;
-  endDate: Date | string;
-  status: string;
-};
+import { calcNightsUTC, normalizeToUTCMidnight, parseStringToUTCDate } from '../utils/dateUtils';
+import { calculateStayPrice } from '../utils/bookingConflict';
 
 // ─── PATCH /api/bookings/:id ───────────────────────────────────────────────────
 export const updateBooking = async (
@@ -70,10 +64,11 @@ export const updateBooking = async (
     const updatedBooking = await prisma.$transaction(
       async (tx) => {
         // 1. Provera i zaključavanje reda rezervacije koju menjamo da niko drugi ne može da je modifikuje paralelno
-        const bookingsForUpdate = await tx.$queryRaw<BookingRow[]>`
+        const bookingsForUpdate = await tx.$queryRaw<ApiBooking[]>`
         SELECT * FROM "Booking" WHERE id = ${id} FOR UPDATE
       `;
-        const existing = bookingsForUpdate[0];
+        const existing =
+          bookingsForUpdate && bookingsForUpdate.length > 0 ? bookingsForUpdate[0] : null;
 
         // Ako element ne postoji (odnosno ako je niz prazan ili null), bacamo grešku
         if (!existing) {
@@ -81,8 +76,13 @@ export const updateBooking = async (
         }
 
         // Kombinujemo stare i nove datume radi validacije konflikta termina
-        const finalStartDate = startDate ?? new Date(existing.startDate);
-        const finalEndDate = endDate ?? new Date(existing.endDate);
+        const finalStartDate = startDate
+          ? normalizeToUTCMidnight(parseStringToUTCDate(startDate))
+          : normalizeToUTCMidnight(new Date(existing.startDate));
+
+        const finalEndDate = endDate
+          ? normalizeToUTCMidnight(parseStringToUTCDate(endDate))
+          : normalizeToUTCMidnight(new Date(existing.endDate));
         const finalApartmentId = existing.apartmentId;
 
         if (finalEndDate <= finalStartDate) {
@@ -119,6 +119,37 @@ export const updateBooking = async (
         if (startDate !== undefined) updateData.startDate = startDate;
         if (endDate !== undefined) updateData.endDate = endDate;
         if (status !== undefined) updateData.status = status;
+
+        // 🎯 4. FINANSIJSKI REKALKULATOR:
+        if (startDate !== undefined || endDate !== undefined) {
+          const rates = await tx.apartmentRate.findMany({
+            where: { apartmentId: finalApartmentId },
+            orderBy: { startDate: 'asc' },
+          });
+
+          const totalNights = calcNightsUTC(finalStartDate, finalEndDate);
+
+          // 🛡️ STROGA PROVERA KAPACITETA: Čitamo kapacitet i odmah bacamo grešku ako ne valja
+          const rawCapacity =
+            req.body.capacity !== undefined ? req.body.capacity : existing.capacity;
+          const bookingCapacity = Number(rawCapacity);
+
+          if (
+            isNaN(bookingCapacity) ||
+            bookingCapacity <= 0 ||
+            !Number.isInteger(bookingCapacity)
+          ) {
+            throw new Error('CRITICAL_INVALID_BOOKING_CAPACITY');
+          }
+
+          // 🎯 POZIV ZAJEDNIČKE FUNKCIJE: Identičan proračun cene kao i kod kreiranja!
+          updateData.totalPrice = calculateStayPrice(
+            rates,
+            finalStartDate,
+            totalNights,
+            bookingCapacity,
+          );
+        }
 
         // 4. Izvršavanje ažuriranja u bazi unutar transakcije
         return await tx.booking.update({
@@ -199,7 +230,7 @@ export const deleteBooking = async (
     const cancelledBooking = await prisma.$transaction(
       async (tx) => {
         // 1. Provera postojanja i zaključavanje reda rezervacije
-        const bookingsForUpdate = await tx.$queryRaw<BookingRow[]>`
+        const bookingsForUpdate = await tx.$queryRaw<ApiBooking[]>`
         SELECT id, status FROM "Booking" WHERE id = ${safeId} FOR UPDATE
       `;
 

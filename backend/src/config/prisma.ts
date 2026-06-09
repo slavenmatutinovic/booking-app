@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 import { env } from './env'; // Uses your validated Zod env setup
@@ -29,10 +29,12 @@ if (!globalForPrisma.prisma) {
     log: env.NODE_ENV === 'development' ? [{ emit: 'event', level: 'query' }] : ['error'],
   });
 
+  const prismaEventEmitter = prismaInstance as unknown as {
+    $on(event: 'query', callback: (event: Prisma.QueryEvent) => void): void;
+  };
+
   if (env.NODE_ENV === 'development') {
-    // 🚀 REŠENJE: Kastujemo 'query' u any da zaobiđemo bag sa drajver adapterima,
-    // a parametru 'e' dajemo tačnu Prisma strukturu kako bismo bezbedno čitali duration i query.
-    (prismaInstance as any).$on('query', (e: { duration: number; query: string }) => {
+    prismaEventEmitter.$on('query', (e: Prisma.QueryEvent) => {
       if (e.duration > 100) {
         logger.warn(`⚠️ Spor upit (${e.duration}ms): ${e.query}`);
       }

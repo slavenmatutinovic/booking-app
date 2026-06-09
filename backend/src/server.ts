@@ -29,6 +29,8 @@ import { initCleanupCron } from './cron/cleanupCron';
 import { initBackupCron } from './cron/backupCreation';
 import { Prisma } from '@prisma/client';
 import compression from 'compression';
+import { globalApiRateLimiter } from './middleware/rateLimiterMiddleware';
+import { initializeBackupDirectory } from './cron/backupCreation';
 
 const app = express();
 const PORT = env.PORT;
@@ -134,25 +136,6 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter); // Pre svih ruta
 
-// 🛑  Rate limiter za login je odvojen od globalnog jer dozvoljava svega 15 pokušaja
-// u 15 minuta po IP adresi — zaštita od brute force napada na lozinke.
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minuta
-  max: env.NODE_ENV === 'development' ? 200 : 30, // Viši limit za developera
-  standardHeaders: true, // Šalje X-RateLimit-* zaglavlja sa info o preostalom broju pokušaja
-  legacyHeaders: false,
-  message: { error: 'Previše pokušaja logovanja. Pokušajte ponovo za 15 minuta.' },
-});
-
-// 🛡️ REŠENJE SEC-03: Rate Limiter specifično za primanje logova sa frontenda
-const logLimiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minut
-  max: env.NODE_ENV === 'development' ? 200 : 30, // Maksimalno 30 logova u minuti po korisniku na produkciji
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Previše poslatih logova. Zahtev blokiran zbog bezbednosti.' },
-});
-
 // 🗺️ Osnovna test ruta za proveru ispravnosti servera
 app.get('/api/test', (_req, res) => {
   logger.debug('🏓 GET /api/test');
@@ -162,7 +145,34 @@ app.get('/api/test', (_req, res) => {
 // 🟢 POBOLJŠANJE-12: Registracija novog health check endpointa
 app.use('/api/health', healthRouter);
 
+// ── Frontend log prijem ───────────────────────────────────────────────────────
+
+// 🛡️ REŠENJE SEC-03: Rate Limiter specifično za primanje logova sa frontenda
+const logLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minut
+  max: env.NODE_ENV === 'development' ? 200 : 30, // Maksimalno 30 logova u minuti po korisniku na produkciji
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Previše poslatih logova. Zahtev blokiran zbog bezbednosti.' },
+});
+app.use('/api', logLimiter, logRouter);
+
+// ── 2. IDENTITY-AWARE GLOBAL API LIMITER (BUG-09 Fix) ───────────────────────
+// Postavljamo ga ODMAH ISPOD logera. On presreće sve preostale biznis rute na /api
+// i pametno prati korisnike iza NAT-a po njihovom unikatnom 'userId'-ju!
+app.use('/api', globalApiRateLimiter);
+
 // ── Auth rute ─────────────────────────────────────────────────────────────────
+
+// 🛑  Rate limiter za login je odvojen od globalnog jer dozvoljava svega 15 pokušaja
+// u 15 minuta po IP adresi — zaštita od brute force napada na lozinke.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minuta
+  max: env.NODE_ENV === 'development' ? 200 : 30, // Viši limit za developera
+  standardHeaders: true, // Šalje X-RateLimit-* zaglavlja sa info o preostalom broju pokušaja
+  legacyHeaders: false,
+  message: { error: 'Previše pokušaja logovanja. Pokušajte ponovo za 15 minuta.' },
+});
 // ISPRAVKA NOV-10: Redosled middleware — loginLimiter pre registracije auth ruta
 const authRouter = express.Router();
 authRouter.post('/login', loginLimiter, login);
@@ -170,9 +180,6 @@ authRouter.post('/logout', requireAuth, logout);
 // ISPRAVKA: getMe handler prebačen ovde iz inline koda u server.ts
 authRouter.get('/me', requireAuth, getMe);
 app.use('/api/auth', authRouter);
-
-// ── Frontend log prijem ───────────────────────────────────────────────────────
-app.use('/api', logLimiter, logRouter);
 
 // ── Apartments rute (čita iz baze, ne hardkodovano!) ─────────────────────────
 app.use('/api/apartments', apartmentsRouter);
@@ -184,8 +191,35 @@ app.use('/api/bookings', bookingsRouter);
 // app.delete('/api/bookings/:id', requireAuth, requireAdmin, deleteBookingHandler);
 
 // ⏰ Pokretanje pozadinskih cron zadataka
+// Pokrećemo inicijalizacioni lanac
+
+// ─── POKRETANJE SERVERA (STARTUP LIFE-CYCLE) ──────────────────────────────────
+const startServer = async () => {
+  try {
+    // 🛡️ KORAK 1: Inicijalizujemo bezbedan bekap folder van web root-a pre podizanja servera
+    await initializeBackupDirectory();
+    logger.info('📂 Bezbedan bekap direktorijum je uspešno verifikovan i spreman.');
+
+    // 🚀 KORAK 2: Pokrećemo Express server da sluša dolazni saobraćaj
+    app.listen(env.PORT, () => {
+      logger.info(
+        `🚀 Server je uspešno podignut i sluša na portu ${env.PORT} unutar [${env.NODE_ENV}] okruženja.`,
+      );
+      logger.info(`🌐 Frontend URL: ${env.FRONTEND_URL}`);
+    });
+  } catch (error) {
+    const errObj = error as Record<string, unknown>;
+    logger.error(
+      { err: errObj?.message || String(error) },
+      '❌ Kritična greška: Neuspešno podizanje servera tokom inicijalizacije:',
+    );
+    process.exit(1); // "Fail-fast" princip: gasimo proces ako osnovna infrastruktura fali
+  }
+};
+
 initCleanupCron();
 initBackupCron();
+startServer();
 
 // ── Handle 404 — Nepostojeće Rute ─────────────────────────────────────────────
 app.use((_req: Request, res: Response) => {
@@ -220,11 +254,4 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     error:
       env.NODE_ENV === 'development' ? errorMessage : 'Došlo je do neočekivane greške na serveru.',
   });
-});
-
-// 🚀 Pokretanje servera
-app.listen(PORT, () => {
-  logger.info(`🚀 Server pokrenut: http://localhost:${PORT}`);
-  logger.info(`🔧 Okruženje: ${env.NODE_ENV}`);
-  logger.info(`🌐 Frontend URL: ${env.FRONTEND_URL}`);
 });

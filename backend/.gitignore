@@ -1,6 +1,13 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.local
+.env.production
+backend/.env
+frontend/.env
+
+# Sakrivanje lokalnih Prisma konfiguracija sa kredencijalima
+backend/prisma.config.ts
 
 /generated/prisma
 backend/backups/

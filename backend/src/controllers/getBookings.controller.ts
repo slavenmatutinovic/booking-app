@@ -55,11 +55,32 @@ export const getBookings = async (
     startRange = getUTCMonthRange(sYear, sMon).start;
     endRange = getUTCMonthRange(eYear, eMon).end;
   } else {
-    // Fallback za single month parameter flow if range boundaries are missing
-    const year = parseInt(req.query.year as string, 10) || new Date().getUTCFullYear();
-    const mon = parseInt(req.query.month as string, 10) || new Date().getUTCMonth() + 1;
+    // 🛡️  Safe single-parameter parsing if range boundaries are missing
+    const queryMonthStr = req.query.month as string | undefined;
+    let targetYear = new Date().getUTCFullYear();
+    let targetMonth = new Date().getUTCMonth() + 1; // Default to current UTC month index
 
-    const singleMonthPeriod = getUTCMonthRange(year, mon);
+    // Check if the query parameter is passed using the clean "YYYY-MM" string format
+    if (typeof queryMonthStr === 'string' && queryMonthStr.includes('-')) {
+      try {
+        // Safe protection: artificially pad to full YYYY-MM-DD to leverage your secure date utility
+        const parsedUtcObject = parseStringToUTCDate(`${queryMonthStr}-01`);
+        targetYear = parsedUtcObject.getUTCFullYear();
+        targetMonth = parsedUtcObject.getUTCMonth() + 1;
+      } catch {
+        logger.warn(
+          { queryMonthStr },
+          '⚠️ Invalid single month format passed. Falling back to default system frame.',
+        );
+      }
+    } else {
+      // Inline parsing for legacy raw numerical parameters if passed separately (?year=2026&month=6)
+      targetYear = parseInt(req.query.year as string, 10) || targetYear;
+      targetMonth = parseInt(req.query.month as string, 10) || targetMonth;
+    }
+
+    // Pass mathematically audited values to resolve accurate UTC boundaries
+    const singleMonthPeriod = getUTCMonthRange(targetYear, targetMonth);
     startRange = singleMonthPeriod.start;
     endRange = singleMonthPeriod.end;
   }
@@ -94,15 +115,21 @@ export const getBookings = async (
 
     const rangeToken = startMonth && endMonth ? `${startMonth}_${endMonth}` : month || 'all';
 
-    const castCursor = typeof cursor === 'string' ? cursor : undefined;
+    const isAuthenticated = !!req.user;
 
     // Kreiramo dinamički ključ na osnovu parametara pretrage (npr. "bookings:2026-07")
-    const cacheKey = CACHE_KEYS.BOOKINGS(rangeToken, apartmentId, castCursor);
+    const baseCacheKey = CACHE_KEYS.BOOKINGS(
+      typeof startMonth === 'string' ? startMonth : rangeToken,
+      typeof endMonth === 'string' ? endMonth : undefined,
+      apartmentId,
+    );
+    const cacheKey = `${baseCacheKey}:${isAuthenticated ? 'auth' : 'anon'}`;
 
     if (shouldCache) {
-      const cachedBookings = appCache.get(cacheKey);
+      // Koristimo ugrađenu Record strukturu umesto novih interfejsa
+      const cachedBookings = appCache.get<Record<string, unknown>>(cacheKey);
       if (cachedBookings) {
-        logger.debug({ cacheKey }, '⚡ Cache HIT - Vraćam podatke iz memorije');
+        logger.debug({ cacheKey }, '⚡ Cache HIT - Bezbedno vraćam izolovane podatke iz memorije');
         res.json(cachedBookings);
         return;
       }
@@ -133,20 +160,29 @@ export const getBookings = async (
      * implementira isti filter radi UX-a (sakrij polja u UI-u),
      * ali backend filter je jedini koji je bezbednosno relevantan.
      */
-    const isAuthenticated = !!req.user;
-
     const filteredBookings = isAuthenticated
-      ? bookings
-      : bookings.map((b) => ({
-          ...b,
-          guest: 'Zauzeto', // Sakriveno ime
-          email: 'skriveno@podaci.com', // Sakriven email
-          phone: null, // Sakriven telefon
-        }));
+      ? bookings.map((b) => {
+          // Kastujemo element u nepoznati Record objekat da bismo bezbedno i čisto prepisali totalPrice tip
+          const rawBooking = b as unknown as Record<string, unknown>;
+          return {
+            ...rawBooking,
+            totalPrice: Number(b.totalPrice), // Zod v4 i Prisma v7 kompatibilna transformacija Decimal-a u Number
+          };
+        })
+      : bookings.map((b) => {
+          const rawBooking = b as unknown as Record<string, unknown>;
+          return {
+            ...rawBooking,
+            guest: 'Zauzeto', // Sakriveno ime
+            email: null, // Sakriven email
+            phone: null, // Sakriven telefon
+            totalPrice: 0, // Finansijska zaštita podataka za anonimne korisnike
+          };
+        });
 
     const responsePayload = { bookings: filteredBookings, nextCursor };
 
-    // Keširamo ovaj specifičan mesec/apartman
+    // Keširamo ovaj specifičan mesec/apartman u njegovu sopstvenu fioku
     if (shouldCache) {
       appCache.set(cacheKey, responsePayload, 1800);
       logger.debug({ cacheKey }, '💾 Cache MISS - Upisano u memoriju');

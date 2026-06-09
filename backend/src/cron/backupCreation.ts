@@ -1,13 +1,49 @@
 import cron from 'node-cron';
-import { promises as fs } from 'fs';
+import fs from 'node:fs/promises';
 import path from 'path';
 import { Workbook } from 'exceljs';
 import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 
-// Jedinstveni krovni direktorijum za sve bekapi na serveru
-const BACKUP_DIR = path.join(__dirname, '../../backups');
+// 🛡️ Pomeramo folder POTPUNO van projekta (izvan web root-a)
+// Koristimo '../../../../' da izađemo iz src, controllers i samog booking-app foldera
+const BACKUP_DIR = path.join(__dirname, '../../../../booking_app_secure_backups');
+
+/**
+ * Inicijalizuje i kreira bezbedan folder za bekap ukoliko ne postoji.
+ * 🔒 OSIGURANO: Greška ENOENT se uspešno presreće i rešava kreiranjem foldera,
+ * sprečavajući rušenje Node.js procesa pri startup-u!
+ */
+export const initializeBackupDirectory = async (): Promise<void> => {
+  try {
+    // 1. Proveravamo postojanje foldera asinhrono
+    await fs.stat(BACKUP_DIR);
+    console.log('📂 Bezbedan bekap direktorijum već postoji na putanji:', BACKUP_DIR);
+  } catch (error) {
+    const errObj = error as Record<string, unknown>;
+
+    // 2. Ako je greška ENOENT (Folder ne postoji), to je potpuno očekivano!
+    if (errObj?.code === 'ENOENT') {
+      try {
+        // Kreiramo folder sa restriktivnim permisijama (samo vlasnik sistema može da čita i piše)
+        await fs.mkdir(BACKUP_DIR, { recursive: true, mode: 0o700 });
+        console.log('✨ Uspešno kreiran novi bezbedan bekap direktorijum na disku:', BACKUP_DIR);
+        return; // Uspešno završavamo funkciju, nema propagacije greške!
+      } catch (mkdirError) {
+        const mkdirErrObj = mkdirError as Record<string, unknown>;
+        console.error(
+          '❌ Kritična greška: Operativni sistem je zabranio kreiranje foldera:',
+          mkdirErrObj?.message || mkdirError,
+        );
+        throw mkdirError; // Bacamo dalje samo ako sistem fizički brani kreiranje foldera
+      }
+    }
+
+    // Ako se desi bilo koja druga sistemska greška (npr. EACCES - nemamo prava pristupa), bacamo je dalje
+    throw error;
+  }
+};
 
 // =============================================================================
 // ⚙️ POMOĆNI SERVISI ZA GENERISANJE PODATAKA

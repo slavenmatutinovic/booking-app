@@ -1,7 +1,7 @@
 // frontend/src/utils/pricingCalculator.ts
 import { addDays, differenceInDays } from 'date-fns';
 import { ApartmentRateData } from '../../../shared';
-import { parseDateStr } from './dates';
+import { parseDateStr, cleanDateToIsoString } from './dates';
 
 export interface DayBreakdownItem {
   dateStr: string;
@@ -14,28 +14,6 @@ export interface ClientPriceCalculationResult {
   averagePricePerNight: number;
   breakdown: DayBreakdownItem[];
   hasUnconfiguredDays: boolean;
-}
-
-// Pomoćna funkcija: Bezbedno čupa YYYY-MM-DD deo iz datuma
-function cleanDateToIsoString(input: Date | string): string {
-  if (typeof input === 'string') {
-    // Ako je već ISO string ili sadrži vremensku zonu, izolujemo samo YYYY-MM-DD deo
-    const cleanStr = input.split('T')[0] ?? '';
-    // Ako string odgovara YYYY-MM-DD formatu, vraćamo ga direktno bez parsiranja
-    if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) {
-      return cleanStr;
-    }
-    const parsed = parseDateStr(cleanStr);
-    const year = parsed.getFullYear();
-    const month = String(parsed.getMonth() + 1).padStart(2, '0');
-    const day = String(parsed.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  const year = input.getFullYear();
-  const month = String(input.getMonth() + 1).padStart(2, '0');
-  const day = String(input.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 /**

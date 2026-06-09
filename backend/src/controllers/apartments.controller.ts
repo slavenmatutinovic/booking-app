@@ -38,7 +38,7 @@ import { prisma } from '../config/prisma';
 import { logger } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { createApartmentSchema, updateApartmentSchema } from '../validators/apartment.validator';
-import { appCache, CACHE_KEYS, invalidateApartmentCache } from '../utils/cache';
+import { appCache, CACHE_KEYS } from '../utils/cache';
 
 // Tip za raw SQL upit — Prisma ne može zaključati specifičan red kroz ORM sintaksu
 type ApartmentRow = { id: string };
@@ -139,82 +139,99 @@ export const getApartmentById = async (
     return;
   }
 
-  // ⚡ Jedinstveni ključ za keširanje ovog specifičnog apartmana sa svim sirovim podacima
-  const cacheKey = `apartment:${safeId}`;
+  // 🛡️ KORAK 1: Provera autentifikacije se izvršava ODMAH na početku zahteva
+  const userRole = req.user?.role; // e.g., 'ADMIN', 'VIEWER', or undefined
+  const hasPrivilegedAccess = userRole === 'ADMIN' || userRole === 'VIEWER';
+
+  // 🔒 KORAK 2: Kreiramo unikatni ključ sa sufiksom uloge (auth ili anon) čime pravimo dve izolovane fioke u memoriji
+  const cacheKey = `apartment:${safeId}:${hasPrivilegedAccess ? 'auth' : 'anon'}`;
 
   try {
     // 🔍 KORAK 1: Pokušaj čitanja iz brze memorije (Cache HIT)
-    let apartment = appCache.get<any>(cacheKey);
+    const cachedResponse = appCache.get<Record<string, unknown>>(cacheKey);
 
-    if (!apartment) {
-      // 💾 KORAK 2: Cache MISS — Idemo u bazu podataka po sirove (nesanitizovane) podatke
-      // Povlačimo i 'guest' polje kako bi ga keš sačuvao za admina, a filtriraćemo ga naknadno dole
-      apartment = await prisma.apartment.findUnique({
-        where: { id: safeId },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          bookings: {
-            where: { status: 'CONFIRMED' }, // Ne vraćamo otkazane rezervacije
-            orderBy: { startDate: 'asc' },
-            select: {
-              id: true,
-              startDate: true,
-              endDate: true,
-              guest: true, // Povlačimo u keš, ali maskiramo pre slanja javnim korisnicima
-            },
+    if (cachedResponse) {
+      logger.debug({ cacheKey }, '⚡ Cache HIT — Bezbedno vraćam izolovane podatke iz memorije');
+      res.json({ apartment: cachedResponse });
+      return;
+    }
+
+    // 💾 KORAK 4: Cache MISS — Idemo u bazu podataka po podatke
+    const dbResult = await prisma.apartment.findUnique({
+      where: { id: safeId, isDeleted: false },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        bookings: {
+          where: { status: 'CONFIRMED' }, // Ne vraćamo otkazane rezervacije
+          orderBy: { startDate: 'asc' },
+          select: {
+            id: true,
+            startDate: true,
+            endDate: true,
+            guest: true,
           },
         },
-      });
+      },
+    });
 
-      if (!apartment) {
-        res.status(404).json({ error: 'Apartman nije pronađen.' });
-        return;
-      }
-
-      // Upisujemo pun, originalan objekat iz baze u keš na 30 minuta (1800s)
-      appCache.set(cacheKey, apartment, 1800);
-      logger.debug({ cacheKey }, '💾 Cache MISS — Podaci o apartmanu uspešno keširani');
-    } else {
-      logger.debug({ cacheKey }, '⚡ Cache HIT — Vraćam podatke o apartmanu iz memorije');
+    if (!dbResult) {
+      res.status(404).json({ error: 'Apartman nije pronađen.' });
+      return;
     }
 
-    // 🛡️ KORAK 3: Read the active user permissions from optionalAuth middleware properties
-    const userRole = req.user?.role; // e.g., 'ADMIN', 'VIEWER', or undefined
-    const hasPrivilegedAccess = userRole === 'ADMIN' || userRole === 'VIEWER';
+    // Kastujemo bazu u legalni nepoznati Record objekat da bismo radili po strogim TypeScript pravilima
+    const rawApartment = dbResult as unknown as Record<string, unknown>;
+    const bookings = Array.isArray(rawApartment.bookings) ? rawApartment.bookings : [];
 
-    // Pravimo plitku kopiju keširanog objekta da ne bismo slučajno izmenili sam keš u memoriji servera
+    // 🔒 KORAK 5: Dinamička runtime transformacija i GDPR maskiranje (Potpuno izolovano)
+    const sanitizedBookings = bookings.map((b) => {
+      const rawBooking = b as unknown as Record<string, unknown>;
+
+      if (hasPrivilegedAccess) {
+        // Administratori i Vieweri dobijaju pun, originalan objekat
+        return {
+          id: rawBooking.id,
+          apartmentId: safeId,
+          startDate: rawBooking.startDate,
+          endDate: rawBooking.endDate,
+          guest: rawBooking.guest,
+          color: '#ef4444',
+        };
+      } else {
+        // 🔒 Javni gosti dobijaju strogo maskirane podatke (GDPR Enforcement)
+        return {
+          id: rawBooking.id,
+          apartmentId: safeId,
+          startDate: rawBooking.startDate,
+          endDate: rawBooking.endDate,
+          color: '#3b82f6',
+          guest: 'Zauzeto',
+          email: null,
+          phone: null,
+        };
+      }
+    });
+
+    // Sklapamo finalni objekat apartmana koji odgovara tvojoj strukturi
     const apartmentResponse = {
-      ...apartment,
-      bookings: [...apartment.bookings],
+      id: rawApartment.id,
+      name: rawApartment.name,
+      description: rawApartment.description,
+      bookings: sanitizedBookings,
     };
 
-    // 🔒 KORAK 4: If the user is unauthenticated, mask all private data before sending
-    if (!hasPrivilegedAccess) {
-      const sanitizedBookings = apartmentResponse.bookings.map((b: any) => ({
-        id: b.id,
-        apartmentId: safeId,
-        startDate: b.startDate,
-        endDate: b.endDate,
-        color: '#3b82f6', // Dodajemo boju za frontend (nije privatna informacija)
-        // 🔒 GDPR Enforcement: Confidential properties are explicitly omitted
-        guest: 'Zauzeto',
-        email: null,
-        phone: null,
-      }));
-
-      // Override the original array structure with the clean data footprint
-      apartmentResponse.bookings = sanitizedBookings;
-    }
+    // Upisujemo spreman, pre-filtriran paket u njegovu ličnu fioku (auth ili anon) na 30 minuta
+    appCache.set(cacheKey, apartmentResponse, 1800);
+    logger.debug({ cacheKey }, '💾 Cache MISS — Podaci o apartmanu uspešno keširani');
 
     logger.info({ apartmentId: safeId }, '✅ getApartmentById — pronađen i isporučen');
 
-    // Vraćamo tačan format koji tvoj frontend kalendar očekuje: { apartment: { ... } }
+    // Vraćamo tačan format koji tvoj frontend očekuje: { apartment: { ... } }
     res.json({ apartment: apartmentResponse });
   } catch (error) {
     logger.error({ err: error, apartmentId: safeId }, '❌ getApartmentById — greška u bazi');
-
     next(error);
   }
 };
@@ -323,7 +340,7 @@ export const updateApartment = async (
     res.json({ message: 'Apartman je uspešno ažuriran', apartment });
 
     // INVALIDACIJA KEŠA — briše se stari niz, novi će se učitati pri sledećem GET pozivu
-    invalidateApartmentCache(safeId);
+    appCache.del(CACHE_KEYS.APARTMENTS);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
       res.status(404).json({ error: 'Apartman nije pronađen.' });
@@ -376,7 +393,7 @@ export const deleteApartment = async (
     logger.info({ apartmentId: safeId, adminId: req.user?.userId }, '✅ Apartman obrisan');
     res.json({ message: 'Apartman je uspešno obrisan.' });
     // INVALIDACIJA KEŠA — briše se stari niz, novi će se učitati pri sledećem GET pozivu
-    invalidateApartmentCache(safeId);
+    appCache.del(CACHE_KEYS.APARTMENTS);
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
       if (error.code === 'P2025') {
