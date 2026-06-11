@@ -38,6 +38,7 @@ import { CalendarToolbar } from './calendar/CalendarToolbar';
 import { CalendarSidebar } from './calendar/CalendarSidebar';
 import { CalendarTimeline } from './calendar/CalendarTimeline';
 import { BookingModal } from './BookingModal';
+import React from 'react';
 
 // =============================================================================
 // 📐 LAYOUT KONSTANTE — Deljene sa podkomponentama
@@ -187,6 +188,12 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
     [startDrag],
   );
 
+  const memorizedActiveRates = React.useMemo(() => {
+    if (!selData || !selData.aptId) return [];
+    const currentApt = apartments.find((a) => a.id === selData.aptId);
+    return currentApt?.rates ?? [];
+  }, [selData, apartments]);
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (loading) return <div className="loading">Učitavanje kalendara...</div>;
   if (error) return <div className="error">Greška: {error}</div>;
@@ -248,8 +255,9 @@ export default function BookingCalendar({ currentUser, onLogout }: BookingCalend
             isAdmin={isAdmin}
             currentUser={currentUser}
             bookingError={bookingError}
-            activeRates={apartments.find((a) => a.id === selData?.aptId)?.rates || []}
             isCreating={isCreating}
+            // Prosleđujemo pre-izračunate stope bez pokretanja teških petlji u hodu
+            activeRates={memorizedActiveRates}
           />,
           document.body, // 👈 Ubrizgava modal direktno na dno HTML-a van svih divova
         )}

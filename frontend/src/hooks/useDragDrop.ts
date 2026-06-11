@@ -2,8 +2,9 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import type { DraggingState, FrontendBooking } from '../types/ui';
 import { remoteLogger } from '../utils/remoteLogger';
-import { calculateClientDynamicPrice } from '../utils/pricingCalculator';
+
 import { Apartment } from '../../../shared';
+import { calculateStayPriceShared } from '../../../shared/pricing';
 
 interface UseDragDropProps {
   canEdit: boolean;
@@ -145,22 +146,36 @@ export const useDragDrop = ({
       }
 
       // 2. Compute dynamic price matrix shifts using your official client engine
-      let livePriceCalculated = 0;
+
+      let dynamicPrice = 0;
       const currentApartment = curApartments.find((a: Apartment) => a.id === curDrag.apartmentId);
 
       if (currentApartment) {
-        // Fire the calculation engine using strictly defined custom seasonal records
-        const priceCalculationEnvelope = calculateClientDynamicPrice(
-          newStartStr,
-          newEndStr,
-          currentApartment.rates || [],
-        );
+        try {
+          // 1. Pretvaramo tvoja dva stringa u Date objekte
+          const startObj = new Date(newStartStr);
+          const endObj = new Date(newEndStr);
 
-        // If a night falls into an unconfigured gap, you can choose to mark the drag placement as invalid
-        // if (priceCalculationEnvelope.hasUnconfiguredDays) isValid = false;
+          // 2. Računamo razliku u danima (broj noćenja)
+          const calculatedDiffDays = Math.ceil(
+            (endObj.getTime() - startObj.getTime()) / (1000 * 60 * 60 * 24),
+          );
 
-        livePriceCalculated = priceCalculationEnvelope.totalPrice;
+          // 3. Prosleđujemo u shared kalkulator koristeći ispravan 'curDrag' objekt
+          dynamicPrice = calculateStayPriceShared({
+            rates: currentApartment.rates ?? [],
+            startDateInput: newStartStr,
+            totalNights: calculatedDiffDays,
+            // Koristimo curDrag umesto draggingState jer tvoj hook tako naziva ovo stanje
+            bookingCapacity: Number(curDrag.capacity),
+            returnBreakdown: false,
+          }) as number;
+        } catch {
+          // Ako se prevuče van sezone, cena pada na 0 i sprečava crash interfejsa
+          dynamicPrice = 0;
+        }
       }
+      const livePriceCalculated = dynamicPrice;
 
       if (
         newStartStr !== curDrag.currentStartStr ||

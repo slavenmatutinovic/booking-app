@@ -97,6 +97,11 @@ export const createBookingSchema = z
     ),
 
     endDate: isoDatetime('endDate mora biti validan ISO 8601 string.'),
+    capacity: z.coerce
+      .number({ message: 'Kapacitet mora biti broj.' })
+      .int('Kapacitet mora biti ceo broj.')
+      .min(1, 'Kapacitet mora biti najmanje 1 osoba.')
+      .max(20, 'Kapacitet prelazi maksimalni dozvoljeni limit objekta.'),
   })
   .superRefine((data, ctx) => validateBookingDatesRefinement(data, ctx, false));
 

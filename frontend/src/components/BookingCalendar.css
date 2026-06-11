@@ -373,7 +373,7 @@
   position: absolute;
   bottom: calc(var(--row-h) - 2px);
   left: 50%;
-  transform: translateX(-50%);
+  /*transform: translateX(-50%);*/
   background: #1f2937;
   color: white;
   border-radius: 6px;

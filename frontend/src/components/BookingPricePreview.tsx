@@ -1,69 +1,69 @@
 import { useMemo } from 'react';
-import { calculateStayPriceShared } from '../../../shared/pricing';
+import { calculateStayPriceShared, CalculatePriceArgs } from '../../../shared/pricing';
 import { format } from 'date-fns';
-import { ApartmentRateData } from '../../../shared';
-import { parseDateStr } from '../utils/dates';
 
-interface BookingPricePreviewProps {
-  activeRates: ApartmentRateData[];
-  startDate: string; // "YYYY-MM-DD"
-  endDate: string; // "YYYY-MM-DD"
-  capacity: number;
-}
+type BookingPricePreviewProps = Omit<CalculatePriceArgs, 'totalNights'> & {
+  endDate: string; // Ekstra polje koje je neophodno klijentskom kalendaru za opseg
+};
 
-export function BookingPricePreview({
-  startDate,
-  endDate,
-  activeRates,
-  capacity,
-}: BookingPricePreviewProps) {
+export const BookingPricePreview: React.FC<BookingPricePreviewProps> = ({
+  rates, // Polje preuzeto direktno iz CalculatePriceArgs
+  startDateInput, // Polje preuzeto direktno iz CalculatePriceArgs
+  bookingCapacity, // Polje preuzeto direktno iz CalculatePriceArgs
+  endDate, // Naše prošireno polje za kalendarski kraj opsega
+  returnBreakdown = true,
+}) => {
   // Memoize calculation loops to prevent unnecessary recalibration during re-renders
   // 🎯 JEDINSTVENI MEMO: Čist, bez redundantnih zavisnosti i bez skrivanja fatalnih grešaka
   const priceCalculation = useMemo(() => {
-    if (!startDate || !endDate) return null;
-
-    const start = parseDateStr(startDate);
-    const end = parseDateStr(endDate);
-    const totalNights = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
-
-    if (totalNights <= 0) return null;
+    if (!startDateInput || !endDate) return null;
 
     try {
+      const d1 = new Date(startDateInput);
+      const d2 = new Date(endDate);
+      const computedNights = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (computedNights <= 0) {
+        // Vraćamo čist objekat greške ako su datumi naopako okrenuti
+        return { error: 'Datum odlaska mora biti nakon datuma dolaska.' };
+      }
       // Pozivamo tvoj shared kod – ako fali cena, ovde momentalno puca izvršavanje!
       // 🔥 NEMA DUPLIRANJA LOGIKE: Prosleđujemo true i dobijamo kompletan breakdown iz shared-a
       const result = calculateStayPriceShared({
-        rates: activeRates,
-        startDateInput: startDate,
-        totalNights,
-        bookingCapacity: capacity,
-        returnBreakdown: true,
-      }) as {
-        totalPrice: number;
-        averagePricePerNight: number;
-        breakdown: { dateStr: string; price: number }[];
-      };
+        rates,
+        startDateInput,
+        totalNights: computedNights,
+        bookingCapacity,
+        returnBreakdown,
+      });
 
-      return { ...result, totalNights, error: null };
-    } catch (err: unknown) {
+      return result;
+    } catch (catchError: unknown) {
       // ✅  Hvata se stroga poruka i čuva se broj noćenja kako komponenta ne bi nestala
-      const msg = err instanceof Error ? err.message : 'Greška pri računanju cene.';
-      return {
-        totalPrice: 0,
-        totalNights, // Čuvamo broj noćenja da bi barijera propustila render greške
-        averagePricePerNight: 0,
-        breakdown: [], // Prazan niz samo da zadovoljimo TypeScript strukturu
-        error: msg,
-      };
-    }
-  }, [startDate, endDate, activeRates, capacity]);
+      // Presrećemo PRICING_FAILED grešku ako neka noć nema definisanu cenu u bazi podataka
+      const errorMessage = catchError instanceof Error ? catchError.message : 'Nepoznata greška.';
 
-  if (!priceCalculation || priceCalculation.totalNights <= 0) {
+      // Vraćamo objekat koji sadrži isključivo poruku o grešci
+      return { error: errorMessage };
+    }
+  }, [startDateInput, endDate, rates, bookingCapacity, returnBreakdown]);
+
+  // =============================================================================
+  // 🎨 RENDERING BLOK (Odavde pa na dole se iscrtava korisnički interfejs)
+  // =============================================================================
+
+  // 1. Prvo proveravamo da li proračun uopšte postoji
+  if (!priceCalculation) {
     return null;
   }
 
-  // 🚨 VIZUELNI FAIL-FAST: Ako objekat sadrži grešku, ODMAH prekidamo standardni render
-  // i ispisujemo uočljivi crveni blok. Nema šanse da se prikaže pogrešna ili nulta cena!
-  if (priceCalculation.error) {
+  // 2. 🚨 VIZUELNI FAIL-FAST: Ako objekat sadrži grešku, ODMAH prekidamo standardni render
+  // Koristimo 'in' operator kao Type Guard da bezbedno pročitamo polje .error bez novih interfejsa
+  if (
+    typeof priceCalculation === 'object' &&
+    'error' in priceCalculation &&
+    priceCalculation.error
+  ) {
     return (
       <div
         className="price-preview-error"
@@ -74,13 +74,26 @@ export function BookingPricePreview({
           border: '1px solid #fca5a5',
           color: '#991b1b',
           fontSize: '13px',
+          marginTop: '16px',
         }}
       >
         <span style={{ fontWeight: 'bold' }}>⚠️ Nemoguće izračunati cenu:</span>
-        <div style={{ marginTop: '4px', fontStyle: 'italic' }}>{priceCalculation.error}</div>
+        <div style={{ marginTop: '4px', fontStyle: 'italic' }}>
+          {String((priceCalculation as Record<string, unknown>).error)}
+        </div>
       </div>
     );
   }
+
+  // 3. OKOLINA USPEŠNOG RENDERINGA:
+  // Pošto smo gore eliminisali greške, ovde bezbedno kastujemo objekat u poznatu strukturu
+  // kako bi TypeScript znao da polja breakdown, totalNights i totalPrice garantovano postoje!
+  const successCalculation = priceCalculation as {
+    totalNights: number;
+    totalPrice: number;
+    averagePricePerNight: number;
+    breakdown: { dateStr: string; price: number }[];
+  };
 
   return (
     <div
@@ -91,13 +104,14 @@ export function BookingPricePreview({
         border: '1px solid #e2e8f0',
         marginTop: '16px',
         fontSize: '14px',
+        width: '100%', // Osiguravamo stabilno širenje unutar kontejnera modala
       }}
     >
       <h3 style={{ fontWeight: 600, color: '#334155', marginBottom: '12px', fontSize: '15px' }}>
         🧮 Detaljan obračun cene boravka:
       </h3>
 
-      {/* 1. Itemized Day-by-Day Dynamic Cost Matrix */}
+      {/* ── 1. Itemized Day-by-Day Dynamic Cost Matrix ────────────────── */}
       <div
         style={{
           maxHeight: '150px',
@@ -109,7 +123,8 @@ export function BookingPricePreview({
           marginBottom: '12px',
         }}
       >
-        {priceCalculation.breakdown.map((item, index) => (
+        {/* Koristimo popravljenu i proverenu successCalculation promenljivu za .map() upit */}
+        {successCalculation.breakdown.map((item, index) => (
           <div
             key={index}
             style={{
@@ -122,6 +137,7 @@ export function BookingPricePreview({
             }}
           >
             <span>
+              {/* Zadržavamo tvoju originalnu funkciju 'format' za ispis srpskog kalendarskog šablona */}
               Noćenje {index + 1}: ({format(new Date(item.dateStr), 'dd.MM.yyyy')})
             </span>
 
@@ -132,7 +148,7 @@ export function BookingPricePreview({
         ))}
       </div>
 
-      {/* 2. Totalized Aggregate Summary Blocks */}
+      {/* ── 2. Totalized Aggregate Summary Blocks ────────────────────── */}
       <div
         style={{
           background: '#ffffff',
@@ -151,7 +167,8 @@ export function BookingPricePreview({
           }}
         >
           <span>Ukupno noćenja:</span>
-          <span>{priceCalculation.totalNights}</span>
+          {/* Čitamo bezbedno mapiran broj noćenja sa servera / kalkulatora */}
+          <span>{successCalculation.totalNights}</span>
         </div>
         <div
           style={{
@@ -163,7 +180,7 @@ export function BookingPricePreview({
           }}
         >
           <span>Prosečna cena po noći:</span>
-          <span>{priceCalculation.averagePricePerNight.toFixed(2)} €</span>
+          <span>{successCalculation.averagePricePerNight.toFixed(2)} €</span>
         </div>
         <div
           style={{
@@ -177,9 +194,9 @@ export function BookingPricePreview({
           }}
         >
           <span>UKUPNA CENA:</span>
-          <span>{priceCalculation.totalPrice.toFixed(2)} €</span>
+          <span>{successCalculation.totalPrice.toFixed(2)} €</span>
         </div>
       </div>
     </div>
   );
-}
+};

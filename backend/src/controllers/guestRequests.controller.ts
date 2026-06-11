@@ -2,7 +2,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
-import { logger } from '../utils/logger';
+import { fireAndForget, logger } from '../utils/logger';
 import { randomUUID } from 'crypto';
 import { appCache, CACHE_KEYS, invalidateBookingCache } from '../utils/cache';
 import { Mutex } from 'async-mutex';
@@ -104,23 +104,22 @@ export const createBookingRequest = async (
     const verificationLink = `${env.BACKEND_URL}/api/bookings/verify?token=${token}`;
 
     // Fire & Forget email slanje sa obaveznim osiguranjem Promise-a od nepostojećih mockova
-    const guestEmailPromise = sendRequestReceivedToGuest({
-      id: newRequest.id,
-      guest: newRequest.guest,
-      email: newRequest.email,
-      phone: newRequest.phone,
-      startDate: newRequest.startDate,
-      endDate: newRequest.endDate,
-      apartment: newRequest.apartment,
-      verificationLink,
-    });
-
-    if (guestEmailPromise instanceof Promise) {
-      guestEmailPromise.catch((err: unknown) => {
-        logger.error({ err }, '📧 Pozadinsko slanje email obaveštenja gostu nije uspelo');
-      });
-    }
-
+    fireAndForget(
+      sendRequestReceivedToGuest({
+        id: newRequest.id,
+        guest: newRequest.guest,
+        email: newRequest.email,
+        phone: newRequest.phone,
+        startDate: newRequest.startDate,
+        endDate: newRequest.endDate,
+        apartment: newRequest.apartment,
+        verificationLink,
+      }),
+      {
+        action: 'SEND_GUEST_VERIFICATION_EMAIL',
+        requestId: newRequest.id,
+      },
+    );
     logger.info(
       { requestId: newRequest.id },
       '✅ Zahtev upisan pod transakcijskom zaštitom PENDING_EMAIL',
@@ -238,21 +237,21 @@ export const verifyReservationEmail = async (
     );
 
     // Obaveštavamo admina tek nakon uspešne email verifikacije
-    const adminEmailPromise = sendNewRequestToAdmin({
-      id: targetRequest.id,
-      guest: targetRequest.guest,
-      email: targetRequest.email,
-      phone: targetRequest.phone || '',
-      startDate: targetRequest.startDate,
-      endDate: targetRequest.endDate,
-      apartment: targetRequest.apartment,
-    });
-
-    if (adminEmailPromise instanceof Promise) {
-      adminEmailPromise.catch((err: unknown) => {
-        logger.error({ err }, '📧 Pozadinsko slanje email obaveštenja adminu nije uspelo');
-      });
-    }
+    fireAndForget(
+      sendNewRequestToAdmin({
+        id: targetRequest.id,
+        guest: targetRequest.guest,
+        email: targetRequest.email,
+        phone: targetRequest.phone || '',
+        startDate: targetRequest.startDate,
+        endDate: targetRequest.endDate,
+        apartment: targetRequest.apartment,
+      }),
+      {
+        action: 'SEND_ADMIN_NEW_REQUEST_EMAIL',
+        requestId: targetRequest.id,
+      },
+    );
 
     res.status(200).send(`
       <div style="font-family: sans-serif; text-align: center; padding: 50px; background-color: #f9fafb; min-height: 100vh;">

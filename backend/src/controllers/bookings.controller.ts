@@ -20,7 +20,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
-import { logger } from '../utils/logger';
+import { logger, fireAndForget } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { ApiError, MAX_BOOKING_DAYS, ApiBooking } from '../../../shared/index';
 import { runCombinedBackup } from '../cron/backupCreation';
@@ -174,7 +174,10 @@ export const updateBooking = async (
     res.json({ message: 'Rezervacija je uspešno ažurirana', booking: updatedBooking });
 
     // 📊 Excel backup — fire & forget
-    runCombinedBackup(`Izmenjena rezervacija: ${id}`);
+    fireAndForget(runCombinedBackup(`Izmenjena rezervacija: ${id}`), {
+      action: 'SYNC_COMBINED_BACKUP_AFTER_UPDATE',
+      bookingId: updatedBooking.id,
+    });
   } catch (error: unknown) {
     // Obrada specifičnih transakcionih grešaka
     if (error instanceof Error) {
@@ -266,27 +269,16 @@ export const deleteBooking = async (
     res.json({ message: 'Rezervacija je uspešno otkazana', booking: cancelledBooking });
 
     // Email obaveštenje o otkazivanju — fire & forget
-    const cancellationEmailPromise = sendBookingCancellation(cancelledBooking);
-    if (cancellationEmailPromise instanceof Promise) {
-      cancellationEmailPromise.catch((err: unknown) => {
-        logger.error(
-          { err, bookingId: cancelledBooking.id },
-          '📧 Slanje email obaveštenja o otkazivanju nije uspelo',
-        );
-      });
-    }
+    fireAndForget(sendBookingCancellation(cancelledBooking), {
+      action: 'SEND_CANCELLATION_EMAIL',
+      bookingId: cancelledBooking.id,
+    });
 
     // 📊 Excel backup — fire & forget
-    const backupPromise = runCombinedBackup(`Otkazana rezervacija: ${safeId}`);
-    if (backupPromise instanceof Promise) {
-      backupPromise.catch((err: unknown) => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        logger.error(
-          { err: error, bookingId: cancelledBooking.id },
-          '⚠️ Sinhronizacija kombinovanog bekapa nakon otkazivanja nije uspela',
-        );
-      });
-    }
+    fireAndForget(runCombinedBackup(`Otkazana rezervacija: ${safeId}`), {
+      action: 'SYNC_COMBINED_BACKUP_AFTER_CANCEL',
+      bookingId: cancelledBooking.id,
+    });
   } catch (error: unknown) {
     // Rukovanje greškama usklađeno sa Zod v4 i TypeScript unknown standardom
     if (error instanceof Error) {

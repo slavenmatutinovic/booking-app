@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger } from '../utils/logger';
+import { fireAndForget, logger } from '../utils/logger';
 import { prisma } from '../config/prisma';
 import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingConfirmation } from '../utils/emailService';
-import { appCache, invalidateBookingCache,CACHE_KEYS } from '../utils/cache';
+import { appCache, invalidateBookingCache, CACHE_KEYS } from '../utils/cache';
 import { parseStringToUTCDate, normalizeToUTCMidnight, calcNightsUTC } from '../utils/dateUtils';
 import { findConflictingBooking, calculateStayPrice } from '../utils/bookingConflict';
 
@@ -177,25 +177,15 @@ export const createBooking = async (
     );
     res.status(201).json({ message: 'Rezervacija je uspešno kreirana', booking });
 
-    // Fire & forget slanje imejla potvrde gostu
-    const confirmationPromise = sendBookingConfirmation(booking);
-
-    if (confirmationPromise instanceof Promise) {
-      confirmationPromise.catch((err: unknown) => {
-        logger.error({ err, bookingId: booking.id }, '📧 Slanje email potvrde gostu nije uspelo');
-      });
-    }
+    fireAndForget(sendBookingConfirmation(booking), {
+      action: 'SEND_BOOKING_CONFIRMATION_EMAIL',
+      bookingId: booking.id,
+    });
     // 📊 Excel i backup — fire & forget, ne blokira odgovor
-    const backupPromise = runCombinedBackup('booking_mutation');
-    if (backupPromise instanceof Promise) {
-      backupPromise.catch((err: unknown) => {
-        const error = err instanceof Error ? err : new Error(String(err));
-        logger.error(
-          { err: error, bookingId: booking.id },
-          '⚠️ Sinhronizacija kombinovanog bekapa nakon unosa nije uspela',
-        );
-      });
-    }
+    fireAndForget(runCombinedBackup('booking_mutation'), {
+      action: 'SYNC_COMBINED_BACKUP_AFTER_CREATE',
+      bookingId: booking.id,
+    });
   } catch (error: unknown) {
     // Obrada specifičnih grešaka koje su bačene unutar transakcije
     const failedApartmentId = req.body?.apartmentId ? String(req.body.apartmentId) : 'unknown';

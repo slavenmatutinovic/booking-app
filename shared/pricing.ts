@@ -1,6 +1,6 @@
 import { ApartmentRateData, parseUTCDate } from './index';
 
-interface CalculatePriceArgs {
+export interface CalculatePriceArgs {
   rates: ApartmentRateData[]; // Koristi se isključivo tvoj postojeći bazni interface
   startDateInput: string | Date;
   totalNights: number;
@@ -29,15 +29,39 @@ export function calculateStayPriceShared({
   const baseDate = parseUTCDate(startDateInput);
 
   for (let i = 0; i < totalNights; i++) {
-    const currentNight = new Date(baseDate.getTime() + i * 24 * 60 * 60 * 1000);
-    const currentNightTime = currentNight.getTime();
+    const currentNightTime = Date.UTC(
+      baseDate.getUTCFullYear(),
+      baseDate.getUTCMonth(),
+      baseDate.getUTCDate() + i,
+      0,
+      0,
+      0,
+      0,
+    );
+    const currentNight = new Date(currentNightTime);
 
     const matchingRate = rates.find((r) => {
-      const rateStart = parseUTCDate(r.startDate).getTime();
-      const rateEnd = parseUTCDate(r.endDate).getTime();
+      const rateStart = new Date(r.startDate);
+      const rateEnd = new Date(r.endDate);
+
+      // Normalizacija: Početak sezone u 00:00:00 trenutne vremenske zone datuma
+      const startTimestamp = Date.UTC(
+        rateStart.getUTCFullYear(),
+        rateStart.getUTCMonth(),
+        rateStart.getUTCDate(),
+      );
+
+      // Normalizacija: Kraj sezone pomeramo na 00:00:00 sledećeg dana (ekskluzivna gornja granica sezone)
+      // Ovo garantuje da je celi poslednji dan obuhvaćen bez matematičkog preklapanja sa narednom sezonom
+      const endTimestamp = Date.UTC(
+        rateEnd.getUTCFullYear(),
+        rateEnd.getUTCMonth(),
+        rateEnd.getUTCDate() + 1,
+      );
+
       return (
-        currentNightTime >= rateStart &&
-        currentNightTime < rateEnd &&
+        currentNightTime >= startTimestamp &&
+        currentNightTime < endTimestamp &&
         Number(r.capacity) === Number(bookingCapacity)
       );
     });

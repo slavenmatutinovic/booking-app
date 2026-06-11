@@ -92,21 +92,34 @@ export function TimelineRow({
 
   /**
    * Provjera da li se opseg [i0, i1] može selektovati (sve ćelije slobodne).
+   * POPRAVKA: Uklonjena restriktivna logika za endLimit koja je blokirala dane na granicama rezervacija.
+   * Sada algoritam dopušta da početna selekcija (lo) i krajnja selekcija (hi) stanu tačno na check-out dan.
    */
   const canSelect = useCallback(
     (i0: number, i1: number): boolean => {
       const lo = Math.min(i0, i1);
       const hi = Math.max(i0, i1);
-      const endLimit = lo === hi ? hi : hi - 1; // Dozvoljavamo selekciju jednog dana, ali ako je više dana, zadnji dan mora biti slobodan
 
-      for (let i = lo; i <= endLimit; i++) {
-        if (!days[i] || isSolidOccupied(days[i])) return false;
+      // Prolazimo kroz sve dane u selektovanom opsegu.
+      // Ako korisnik želi da rezerviše od dana odlaska prethodnog gosta, taj dan (lo) se više ne blokira.
+      for (let i = lo; i <= hi; i++) {
+        if (!days[i]) return false;
+
+        // Ako je u pitanju prvi dan selekcije (dan dolaska novog gosta), on SME da se preklapa sa danom odlaska prethodnog.
+        // Zato proveravamo zauzetost samo ako dan nije tačna granica check-out-a.
+        if (isSolidOccupied(days[i])) {
+          // Dozvoljavamo preklapanje isključivo ako je to check-out dan prethodne rezervacije
+          const dateStr = formatDate(days[i]);
+          const isExactCheckOut = bookings.some((b) => b.end === dateStr);
+
+          // Ako je dan čvrsto zauzet a NIJE dan check-out-a, selekcija je nevalidna
+          if (!isExactCheckOut) return false;
+        }
       }
       return true;
     },
-    [days, isSolidOccupied],
+    [days, isSolidOccupied, bookings],
   );
-
   // Bezbedno čitanje selekcije za vizuelni overlay plavog pravougaonika
   const currentSelectionForThisApt = selection && selection.apartmentId === apt.id;
 
@@ -128,7 +141,9 @@ export function TimelineRow({
           const isSolidOcc = isSolidOccupied(day);
           const isPast = isPastDate(day);
           const isT = dateIsToday(day);
-          const blocked = isSolidOcc || isPast;
+          const dateStr = formatDate(day);
+          const isCheckOutDay = bookings.some((b) => b.end === dateStr);
+          const blocked = (isSolidOcc && !isCheckOutDay) || isPast;
 
           return (
             <div

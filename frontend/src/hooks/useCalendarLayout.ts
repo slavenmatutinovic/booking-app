@@ -19,7 +19,7 @@ interface CalendarLayoutResult {
 }
 
 export function useCalendarLayout(minDayW: number): CalendarLayoutResult {
-  const timelineRef    = useRef<HTMLDivElement>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   useEffect(() => {

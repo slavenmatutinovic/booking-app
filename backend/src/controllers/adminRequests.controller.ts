@@ -2,7 +2,7 @@
 
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma';
-import { logger } from '../utils/logger';
+import { fireAndForget, logger } from '../utils/logger';
 import { ApiError } from '@shared/index';
 import { appCache, CACHE_KEYS } from '../utils/cache';
 import { sendRequestRejectedToGuest } from '../utils/emailService';
@@ -84,20 +84,21 @@ export const rejectRequest = async (
         ? existingRequest.phone
         : '';
 
-    const rejectEmailPromise = sendRequestRejectedToGuest({
-      id: existingRequest.id,
-      guest: existingRequest.guest,
-      email: existingRequest.email,
-      phone: safePhone,
-      startDate: existingRequest.startDate,
-      endDate: existingRequest.endDate,
-      apartment: existingRequest.apartment,
-    });
-    if (rejectEmailPromise instanceof Promise) {
-      rejectEmailPromise.catch((err: unknown) => {
-        logger.error({ err }, '📧 Pozadinsko slanje email obaveštenja o odbijanju nije uspelo');
-      });
-    }
+    fireAndForget(
+      sendRequestRejectedToGuest({
+        id: existingRequest.id,
+        guest: existingRequest.guest,
+        email: existingRequest.email,
+        phone: safePhone,
+        startDate: existingRequest.startDate,
+        endDate: existingRequest.endDate,
+        apartment: existingRequest.apartment,
+      }),
+      {
+        action: 'SEND_REQUEST_REJECTED_EMAIL',
+        requestId: existingRequest.id,
+      },
+    );
   } catch (error: unknown) {
     // P2025 označava da zapis nije pronađen (ili je već odobren/odbijen)
     if (error && typeof error === 'object' && 'code' in error && error.code === 'P2025') {

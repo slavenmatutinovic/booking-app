@@ -43,6 +43,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   bookingError,
   isCreating,
   activeRates,
+  dayW,
 }) => {
   // 🆕 DOHVATANJE DOSTUPNIH KAPACITETA IZ BAZE:
   // Skeniramo activeRates niz, izvlačimo jedinstvene kapacitete i sortiramo ih hronološki
@@ -114,17 +115,31 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
         // Računamo horizontalnu (left) poziciju modala
         const targetLeft = Math.min(
-          Math.max(rect.left + activeSelData.left + activeSelData.width / 2 - modalW / 2, 16),
+          Math.max(rect.left + activeSelData.left - (modalW + 2 * dayW), 16),
           window.innerWidth - modalW - 16,
         );
 
         // Računamo vertikalnu (top) poziciju modala (ispod reda)
         const targetTop = rect.top + rowHeight + 6;
-
+        console.log('BookingModal: Pronalazim ciljnu .row za pozicioniranje modala...', {
+          activeSelData,
+          rowCount: rowElements.length,
+          targetRow,
+        });
+        console.log('BookingModal: Ciljna .row koordinate (relative to viewport)', {
+          top: rect.top,
+          left: rect.left,
+          width: rect.width,
+          height: rect.height,
+        });
         // Ako modal bije blizu dna ekrana, automatski ga "skačemo" IZNAD reda (300px procena visine modala)
         const adjustedTop = targetTop + 300 > window.innerHeight ? rect.top - 300 - 6 : targetTop;
 
         setCoords({ top: adjustedTop, left: targetLeft });
+        console.log('BookingModal: Postavljam modal na koordinate', {
+          top: adjustedTop,
+          left: targetLeft,
+        });
       }
     }
 
@@ -134,7 +149,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     // Slušamo promenu veličine prozora ako korisnik rasteže brauzer
     window.addEventListener('resize', updatePosition);
     return () => window.removeEventListener('resize', updatePosition);
-  }, [showModal, selData, modalW]);
+  }, [showModal, selData, modalW, dayW]);
 
   if (!showModal || !selData) return null;
 
@@ -167,6 +182,11 @@ export const BookingModal: React.FC<BookingModalProps> = ({
       },
       selData,
     );
+
+    if (bookingError) {
+      console.warn('Slom validacije, forma se ne prazni:', bookingError);
+      return;
+    }
 
     // Čistimo formu nakon uspešnog kreiranja
     const defaultCapacity =
@@ -322,10 +342,10 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           }}
         >
           <BookingPricePreview
-            startDate={selData.startDate.toISOString()} // Prosleđujemo selektovani početak
+            startDateInput={selData.startDate.toISOString()} // Prosleđujemo selektovani početak
             endDate={selData.endDate.toISOString()} // Prosleđujemo selektovani kraj
-            activeRates={activeRates || []} // Niz sezonskih cena prosleđen sa kalendara/apartmana
-            capacity={localCapacity}
+            rates={activeRates || []} // Niz sezonskih cena prosleđen sa kalendara/apartmana
+            bookingCapacity={localCapacity}
           />
         </div>
       </div>
