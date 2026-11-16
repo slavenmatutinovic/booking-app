@@ -5,21 +5,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import apiFetch from '../api';
 import ApartmentRatesManager from './ApartmentRatesManager';
-
-interface Apartment {
-  id: string;
-  name: string;
-  description?: string;
-}
-
-interface ApartmentRateData {
-  id: string;
-  apartmentId: string;
-  startDate: string;
-  endDate: string;
-  price: number;
-  capacity: number;
-}
+import { Apartment, ApartmentRateData } from '../../../shared';
 
 interface RatesApiResponse {
   rates: ApartmentRateData[];

@@ -1,11 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import { fireAndForget, logger } from '../utils/logger';
-import { prisma } from '../config/prisma';
+import { prisma, ExtendedTransactionClient } from '../config/prisma';
 import { runCombinedBackup } from '../cron/backupCreation';
 import { sendBookingConfirmation } from '../utils/emailService';
 import { appCache, invalidateBookingCache, CACHE_KEYS } from '../utils/cache';
 import { parseStringToUTCDate, normalizeToUTCMidnight, calcNightsUTC } from '../utils/dateUtils';
 import { findConflictingBooking, calculateStayPrice } from '../utils/bookingConflict';
+import { calculateStayPriceShared } from '../../../shared/pricing';
 
 // ─── [SEC-01]: STRIKTNE DEFINICIJE TIPOVA ZA RAW UPITE ────────────────────────
 type ApartmentRow = { id: string };
@@ -21,19 +22,20 @@ export const createBooking = async (
   // 🚀 1. PROVERAVAMO DA LI ODOBRAVAMO POSTOJEĆI ZAHTEV GOSTA
   const requestBody = req.body as Record<string, unknown>;
   const { requestId } = req.body;
-  let bookingData: {
-    apartmentId: string;
-    guest: string;
-    email: string;
-    phone: string | null;
-    startDate: Date;
-    endDate: Date;
-    createdAt?: Date;
-    capacity: number;
+  const rawCapacity = Number(requestBody.capacity);
+  let bookingData = {
+    apartmentId: 'unknown',
+    guest: '',
+    email: '',
+    phone: null as string | null,
+    startDate: new Date(),
+    endDate: new Date(),
+    createdAt: undefined as Date | undefined,
+    capacity: rawCapacity,
   };
   try {
     // 🛡️ STROGA KONTROLA KAPACITETA SA FRONTENDA (Nema više fallbacks!)
-    const rawCapacity = Number(requestBody.capacity);
+
     if (isNaN(rawCapacity) || rawCapacity <= 0 || !Number.isInteger(rawCapacity)) {
       res.status(400).json({
         error: 'Kritična greška u validaciji sistema.',
@@ -77,6 +79,7 @@ export const createBooking = async (
         startDate: new Date(requestBody.startDate as string),
         endDate: new Date(requestBody.endDate as string),
         capacity: rawCapacity, // Koristimo strogo proveren kapacitet sa frontenda i ovde
+        createdAt: new Date(), // Postavljamo datum kreiranja direktno ovde, ne očekujemo ga od frontenda
       };
     }
 
@@ -99,7 +102,7 @@ export const createBooking = async (
 
     // Pokretanje interaktivne transakcije sa izolacijom i zaključavanjem reda
     const booking = await prisma.$transaction(
-      async (tx) => {
+      async (tx: ExtendedTransactionClient) => {
         // 1. Provera postojanja apartmana uz zaključavanje reda (Pessimistic Read/Write)
         // Koristi se sirov SQL unutar transakcije da bi se sprečili konkurentni upisi na isti apartman
         const apartments = await tx.$queryRaw<ApartmentRow[]>`
@@ -120,18 +123,17 @@ export const createBooking = async (
           throw new Error('BOOKING_CONFLICT');
         }
         const totalNights = calcNightsUTC(utcStartDate, utcEndDate);
-        let serverCalculatedTotalPrice = 0;
 
         // 🎯 Koristimo bezbedno upakovani kapacitet sa frontenda (Garantuje tačan proračun BUG-03)
         const bookingCapacity = bookingData.capacity;
 
         // 🎯 POZIV ZAJEDNIČKE FUNKCIJE: Računamo cenu munjevito i 100% bezbedno!
-        serverCalculatedTotalPrice = calculateStayPrice(
-          rates,
-          utcStartDate,
+        const serverCalculatedTotalPrice = calculateStayPriceShared({
+          rates, // Čisti, izravni proslijed s apsolutnom i strogom sigurnošću!
+          startDateInput: utcStartDate,
           totalNights,
           bookingCapacity,
-        );
+        }) as number; // Očekujemo samo broj nazad, breakdown nam nije potreban ovde
 
         // 3. Kreiranje rezervacije u istoj atomičnoj operaciji
         const newBooking = await tx.booking.create({
@@ -187,15 +189,19 @@ export const createBooking = async (
       bookingId: booking.id,
     });
   } catch (error: unknown) {
-    // Obrada specifičnih grešaka koje su bačene unutar transakcije
-    const failedApartmentId = req.body?.apartmentId ? String(req.body.apartmentId) : 'unknown';
+    const failedApartmentId = bookingData?.apartmentId
+      ? String(bookingData.apartmentId)
+      : 'unknown';
+
     if (error instanceof Error) {
+      // Obrada greške kada odabrani apartman fizički ne postoji u bazi podataka
       if (error.message === 'APARTMENT_NOT_FOUND') {
         logger.warn({ apartmentId: failedApartmentId }, '⚠️ createBooking — apartman ne postoji');
         res.status(404).json({ error: `Apartman sa ID ${failedApartmentId} ne postoji` });
         return;
       }
 
+      // Obrada greške kada je drugi korisnik u milisekundi zauzeo isti termin (Konkurentnost)
       if (error.message === 'BOOKING_CONFLICT') {
         logger.warn(
           { apartmentId: failedApartmentId },
@@ -205,16 +211,19 @@ export const createBooking = async (
         return;
       }
 
-      if (error.message && error.message.startsWith('MISSING_RATE_FOR_DATE:')) {
-        const missingDate = error.message.split(':')[1] ?? 'nepoznat datum';
-
+      // =============================================================================
+      // CRITICAL BUG FIX: Usklađujemo provjeru sa stvarnim stringom iz shared/pricing.ts.
+      // Sada sustav točno prepoznaje kada admin nije postavio cjenik za odabrane datume.
+      // =============================================================================
+      if (error.message && error.message.startsWith('PRICING_FAILED:')) {
         logger.warn(
-          { missingDate, apartmentId: req.body?.apartmentId || failedApartmentId },
-          '⚠️ Pokušaj kreiranja rezervacije bez definisane cene za datum',
+          { apartmentId: failedApartmentId, errMessage: error.message },
+          '⚠️ Pokušaj kreiranja rezervacije bez definisane cene za odabrani period',
         );
 
         res.status(422).json({
-          error: `Za datum ${missingDate} nije definisana sezonska cena. Molimo admina da postavi cenovnik pre kreiranja rezervacije.`,
+          error:
+            'Za odabrane datume ili kapacitet nije definisana sezonska cena. Molimo admina da postavi cenovnik pre kreiranja rezervacije.',
         });
         return;
       }

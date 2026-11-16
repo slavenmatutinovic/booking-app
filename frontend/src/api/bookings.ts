@@ -5,10 +5,14 @@ import { remoteLogger } from '../utils/remoteLogger';
 import {
   ReservationRequest,
   ApiBooking,
-  CreateBookingPayload,
   UpdateBookingPayload,
   BookingsResponse,
 } from '../../../shared/index';
+
+export type CreateBookingPayload = Omit<ApiBooking, 'id' | 'status' | 'startDate' | 'endDate'> & {
+  startDate: string; // Prisiljavamo slanje isključivo u obliku "YYYY-MM-DD"
+  endDate: string; // Prisiljavamo slanje isključivo u obliku "YYYY-MM-DD"
+};
 
 // ─── GET /api/bookings ─────────────────────────────────────────────────────────
 export const getBookings = async (params?: {
@@ -51,7 +55,7 @@ export const getBookings = async (params?: {
 };
 
 // ─── POST /api/bookings ────────────────────────────────────────────────────────
-export const createBooking = async (payload: CreateBookingPayload): Promise<ApiBooking> => {
+export const createBookingApi = async (payload: CreateBookingPayload): Promise<ApiBooking> => {
   remoteLogger({
     level: 'info',
     message: 'POST /api/bookings',
@@ -60,32 +64,19 @@ export const createBooking = async (payload: CreateBookingPayload): Promise<ApiB
 
   const response = await apiFetch('bookings', {
     method: 'POST',
-    body: JSON.stringify({
-      ...payload,
-      startDate:
-        typeof payload.startDate === 'string'
-          ? payload.startDate
-          : new Date(payload.startDate).toISOString(),
-      endDate:
-        typeof payload.endDate === 'string'
-          ? payload.endDate
-          : new Date(payload.endDate).toISOString(),
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload), // JSON.stringify pretvara naš strogi objekt u mrežni stream
   });
-
   const data = await response.json();
 
   if (!response.ok) {
-    if (response.status === 409) {
-      remoteLogger({ level: 'warn', message: 'Konflikt termina', errorDetails: data });
-      throw new Error(`Termin zauzet: ${data.error}`);
-    }
+    const errorData = await response.json();
     remoteLogger({
       level: 'error',
       message: 'Greška pri kreiranju rezervacije',
       errorDetails: data,
     });
-    throw new Error(data.error || 'Greška pri kreiranju rezervacije');
+    throw new Error(errorData.error || 'Greška prilikom kreiranja rezervacije.');
   }
 
   remoteLogger({
@@ -93,6 +84,7 @@ export const createBooking = async (payload: CreateBookingPayload): Promise<ApiB
     message: 'Rezervacija kreirana',
     errorDetails: { bookingId: data.booking.id },
   });
+  // Vraćamo čisti ApiBooking objekt koji se nominalno podudara s tvojim shared modulom, ali je zapravo "mrežni DTO" (Data Transfer Object) koji je prošao kroz JSON serijalizaciju i deserializaciju, osiguravajući da nema neočekivanih tipova ili struktura koje bi mogle uzrokovati probleme u frontend logici. Ovo je najsigurniji način da se osigura kompatibilnost između frontenda i backend API-ja.
   return data.booking;
 };
 

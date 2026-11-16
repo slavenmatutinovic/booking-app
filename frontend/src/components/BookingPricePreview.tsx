@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 
 type BookingPricePreviewProps = Omit<CalculatePriceArgs, 'totalNights'> & {
   endDate: string; // Ekstra polje koje je neophodno klijentskom kalendaru za opseg
+  onPriceCalculated?: (totalPrice: number | null) => void;
 };
 
 export const BookingPricePreview: React.FC<BookingPricePreviewProps> = ({
@@ -12,19 +13,23 @@ export const BookingPricePreview: React.FC<BookingPricePreviewProps> = ({
   bookingCapacity, // Polje preuzeto direktno iz CalculatePriceArgs
   endDate, // Naše prošireno polje za kalendarski kraj opsega
   returnBreakdown = true,
+  onPriceCalculated,
 }) => {
   // Memoize calculation loops to prevent unnecessary recalibration during re-renders
   // 🎯 JEDINSTVENI MEMO: Čist, bez redundantnih zavisnosti i bez skrivanja fatalnih grešaka
   const priceCalculation = useMemo(() => {
-    if (!startDateInput || !endDate) return null;
-
+    if (!startDateInput || !endDate) {
+      // Ako datumi još nisu izabrani, javljamo roditelju da je cena nedostupna
+      if (onPriceCalculated) onPriceCalculated(null);
+      return null;
+    }
     try {
       const d1 = new Date(startDateInput);
       const d2 = new Date(endDate);
       const computedNights = Math.round((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
 
       if (computedNights <= 0) {
-        // Vraćamo čist objekat greške ako su datumi naopako okrenuti
+        if (onPriceCalculated) onPriceCalculated(null);
         return { error: 'Datum odlaska mora biti nakon datuma dolaska.' };
       }
       // Pozivamo tvoj shared kod – ako fali cena, ovde momentalno puca izvršavanje!
@@ -36,6 +41,9 @@ export const BookingPricePreview: React.FC<BookingPricePreviewProps> = ({
         bookingCapacity,
         returnBreakdown,
       });
+      if (onPriceCalculated && typeof result === 'object' && 'totalPrice' in result) {
+        onPriceCalculated(result.totalPrice);
+      }
 
       return result;
     } catch (catchError: unknown) {
@@ -46,7 +54,7 @@ export const BookingPricePreview: React.FC<BookingPricePreviewProps> = ({
       // Vraćamo objekat koji sadrži isključivo poruku o grešci
       return { error: errorMessage };
     }
-  }, [startDateInput, endDate, rates, bookingCapacity, returnBreakdown]);
+  }, [startDateInput, endDate, rates, bookingCapacity, returnBreakdown, onPriceCalculated]);
 
   // =============================================================================
   // 🎨 RENDERING BLOK (Odavde pa na dole se iscrtava korisnički interfejs)

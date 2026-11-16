@@ -19,7 +19,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { prisma } from '../config/prisma';
+import { prisma, ExtendedTransactionClient } from '../config/prisma';
 import { logger, fireAndForget } from '../utils/logger';
 import { Prisma } from '@prisma/client';
 import { ApiError, MAX_BOOKING_DAYS, ApiBooking } from '../../../shared/index';
@@ -62,7 +62,7 @@ export const updateBooking = async (
   try {
     // Pokretanje interaktivne transakcije sa sirovim zaključavanjem redova
     const updatedBooking = await prisma.$transaction(
-      async (tx) => {
+      async (tx: ExtendedTransactionClient) => {
         // 1. Provera i zaključavanje reda rezervacije koju menjamo da niko drugi ne može da je modifikuje paralelno
         const bookingsForUpdate = await tx.$queryRaw<ApiBooking[]>`
         SELECT * FROM "Booking" WHERE id = ${id} FOR UPDATE
@@ -231,7 +231,7 @@ export const deleteBooking = async (
   try {
     // Pokrećemo transakciju i zaključavamo red kako bismo sprečili race condition tokom otkazivanja
     const cancelledBooking = await prisma.$transaction(
-      async (tx) => {
+      async (tx: ExtendedTransactionClient) => {
         // 1. Provera postojanja i zaključavanje reda rezervacije
         const bookingsForUpdate = await tx.$queryRaw<ApiBooking[]>`
         SELECT id, status FROM "Booking" WHERE id = ${safeId} FOR UPDATE

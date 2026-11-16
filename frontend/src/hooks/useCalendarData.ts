@@ -21,12 +21,8 @@ import type { FrontendBooking, SelData, BookingStylesMap, Stats } from '../types
 
 import { getApartments } from '../api/apartments';
 import { getBookings } from '../api/bookings';
-import {
-  executeCreateBooking,
-  executeDeleteBooking,
-  executeLogout,
-  executeMoveBooking,
-} from './calendarActions';
+import { executeDeleteBooking, executeLogout, executeMoveBooking } from './calendarActions';
+import { createBookingApi } from '../api/bookings';
 import { remoteLogger } from '../utils/remoteLogger';
 import { parseDateStr, formatDate } from '../utils/dates';
 
@@ -69,8 +65,6 @@ interface UseCalendarDataProps {
   days: Date[];
   dayW: number;
   startDate: Date;
-  setSelection: (v: null) => void;
-  isAdmin: boolean;
   canEdit: boolean;
   onLogout: () => void;
 }
@@ -83,8 +77,7 @@ export function useCalendarData({
   days,
   dayW,
   startDate,
-  setSelection,
-  isAdmin,
+
   canEdit,
   onLogout,
 }: UseCalendarDataProps) {
@@ -94,7 +87,7 @@ export function useCalendarData({
   const [bookings, setBookings] = useState<FrontendBooking[]>([]);
 
   const [bookingError, setBookingError] = useState<string | null>(null);
-  const [isCreating, setIsCreating] = useState(false);
+
   const [isDeleting, setIsDeleting] = useState(false);
 
   const referenceDate = new Date(startDate);
@@ -265,42 +258,36 @@ export function useCalendarData({
     async (
       formData: { guestName: string; email: string; phone: string; capacity: number },
       selData: SelData | null,
-    ) => {
-      if (isCreating) return;
+      totalPrice: number,
+    ): Promise<void> => {
+      if (!selData) throw new Error('Nije odabran period na kalendaru.');
 
-      // 🛡️ REŠENJE ZA POTENCIJALNI NULL: Ako selekcija ne postoji, odmah prekidamo izvršavanje
-      if (!selData) {
-        setBookingError('Nema aktivne selekcije datuma.');
-        return;
-      }
+      const stringStartDate = selData.startDate.toISOString().split('T')[0];
+      const stringEndDate = selData.endDate.toISOString().split('T')[0];
 
-      setBookingError(null);
-      setIsCreating(true);
-      try {
-        await executeCreateBooking({
-          aptId: String(selData.aptId).trim(),
-          guestName: formData.guestName,
-          email: formData.email,
-          phone: formData.phone,
-          selData,
-          bookings,
-          setBookings,
-          setSelection,
-          isAdmin,
-          capacity: formData.capacity,
-        });
+      // Pozivamo našu ispravno uvezenu funkciju koja sada radi besprijekorno u runtime-u
+      const newBookingFromServer = await createBookingApi({
+        apartmentId: selData.aptId,
+        guest: formData.guestName,
+        email: formData.email,
+        phone: formData.phone || null,
+        capacity: formData.capacity,
+        startDate: stringStartDate,
+        endDate: stringEndDate,
+        totalPrice: totalPrice,
+      });
 
-        // ✅ ČIŠĆENJE FORME: Pošto je slanje uspelo, ovde očisti modal / selekciju ako je potrebno
-        setSelection(null); // Ovo će zatvoriti modal i resetovati selekciju
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Greška pri kreiranju rezervacije';
-        setBookingError(msg);
-        remoteLogger({ level: 'error', message: 'Neuspešno kreiranje', errorDetails: { msg } });
-      } finally {
-        setIsCreating(false);
-      }
+      const synchronizedBooking: FrontendBooking = {
+        ...newBookingFromServer,
+        start: stringStartDate,
+        end: stringEndDate,
+        color: '#3b82f6',
+        isOptimistic: false,
+      } as unknown as FrontendBooking;
+
+      setBookings((prev) => [...prev, synchronizedBooking]);
     },
-    [bookings, isAdmin, isCreating, setSelection],
+    [setBookings],
   );
 
   const updateBooking = useCallback(
@@ -386,7 +373,6 @@ export function useCalendarData({
     updateBooking,
     handleLogoutClick,
     bookingError,
-    isCreating,
     isDeleting,
     bookingStyles,
     occupiedSet,

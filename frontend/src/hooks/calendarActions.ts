@@ -24,7 +24,7 @@ import {
   updateBooking as apiUpdate,
   deleteBooking as apiDelete,
   createBookingRequest,
-  createBooking,
+  createBookingApi,
 } from '../api/bookings';
 import toast from 'react-hot-toast';
 import { UpdateBookingPayload } from '../../../shared/index';
@@ -57,6 +57,7 @@ interface CreateBookingArgs {
   email: string;
   phone: string;
   selData: SelData | null;
+  totalPrice: number;
   bookings: FrontendBooking[];
   setBookings: Dispatch<SetStateAction<FrontendBooking[]>>;
   setSelection: (v: null) => void;
@@ -70,6 +71,7 @@ export const executeCreateBooking = async ({
   email,
   phone,
   selData,
+  totalPrice,
   bookings,
   setBookings,
   setSelection,
@@ -118,7 +120,7 @@ export const executeCreateBooking = async ({
     const bookingCapacityNumber = Number(capacity);
 
     if (isAdmin) {
-      const created = await createBooking({
+      const created = await createBookingApi({
         apartmentId: aptId,
         guest: guestName.trim(),
         startDate: finalStartDateStr,
@@ -126,6 +128,7 @@ export const executeCreateBooking = async ({
         email: email.trim(),
         phone: phone.trim() || null,
         capacity: bookingCapacityNumber,
+        totalPrice: totalPrice, // Backend će izračunati pravu cenu na osnovu datuma i kapaciteta, frontend šalje 0 kao placeholder
       });
 
       // Tvoj postojeći kod za ažuriranje lokalnog stanja rezervacija
@@ -142,6 +145,7 @@ export const executeCreateBooking = async ({
         email: email.trim(),
         phone: phone.trim() || null,
         capacity: bookingCapacityNumber,
+        totalPrice: totalPrice, // Backend će izračunati pravu cenu na osnovu datuma i kapaciteta, frontend šalje 0 kao placeholder
       });
 
       // 🧹 Pošto je ovo samo zahtev koji čeka odobrenje, sklanjamo privremenu traku sa kalendara
